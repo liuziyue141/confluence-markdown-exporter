@@ -8,3 +8,4 @@ questionary
 tabulate
 tqdm
 typer
+google-genai
