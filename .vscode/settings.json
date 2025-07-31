@@ -3,7 +3,7 @@
   "editor.formatOnSave": true,
   "autoDocstring.docstringFormat": "google",
   "autoDocstring.startOnNewLine": true,
-  "python.languageServer": "Pylance",
+  "python.languageServer": "None",
   "python.testing.unittestArgs": [
     "-v",
     "-s",
