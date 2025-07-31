@@ -1,0 +1,39 @@
+# Multi-Tenant Confluence RAG Integration Requirements
+
+# Core dependencies from the original project
+pydantic>=2.0.0
+PyYAML>=6.0
+requests>=2.28.0
+atlassian-python-api>=3.41.0
+beautifulsoup4>=4.11.0
+markdownify>=0.11.0
+tqdm>=4.64.0
+
+# Cryptography for secure credential storage
+cryptography>=3.4.8
+
+# New dependencies for the integration system
+langchain-core>=0.1.0
+langchain-google-genai>=0.1.0
+langchain>=0.1.0
+langgraph>=0.1.0
+
+# Vector database (for Phase 2)
+chromadb>=0.4.0
+# Alternative: pinecone-client>=2.2.0
+# Alternative: weaviate-client>=3.0.0
+
+# Additional utilities
+pathlib2>=2.3.7; python_version < "3.4"
+typing-extensions>=4.0.0; python_version < "3.8"
+
+# Development and testing
+pytest>=7.0.0
+pytest-asyncio>=0.21.0
+black>=22.0.0
+ruff>=0.1.0
+
+# Optional: For advanced RAG features
+sentence-transformers>=2.2.0
+numpy>=1.21.0
+scikit-learn>=1.0.0 
