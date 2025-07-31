@@ -195,6 +195,47 @@ class ExportConfig(BaseModel):
         title="Page Breadcrumbs",
         description="Whether to include breadcrumb links at the top of the page.",
     )
+    download_external_images: bool = Field(
+        default=True,
+        title="Download External Images",
+        description=(
+            "Whether to download external images (referenced by URL) locally. "
+            "When enabled, external images will be downloaded and saved to the local filesystem. "
+            "When disabled, external images will be referenced by their original URLs."
+        ),
+    )
+    external_image_path: str = Field(
+        default="{space_name}/images/{image_filename}",
+        title="External Image Path Template",
+        description=(
+            "Template for external image file paths when download_external_images is enabled.\n"
+            "Available variables:\n"
+            "  - {space_key}: The key of the Confluence space.\n"
+            "  - {space_name}: The name of the Confluence space.\n"
+            "  - {homepage_id}: The ID of the homepage of the Confluence space.\n"
+            "  - {homepage_title}: The title of the homepage of the Confluence space.\n"
+            "  - {ancestor_ids}: A slash-separated list of ancestor page IDs.\n"
+            "  - {ancestor_titles}: A slash-separated list of ancestor page titles.\n"
+            "  - {page_id}: The unique ID of the Confluence page.\n"
+            "  - {page_title}: The title of the Confluence page.\n"
+            "  - {image_filename}: The filename extracted from the image URL.\n"
+            "  - {image_hash}: A hash of the image URL for unique identification."
+        ),
+        examples=[
+            "{space_name}/images/{image_filename}",
+            "{space_name}/external-images/{image_hash}.{image_extension}",
+        ],
+    )
+    external_image_href: Literal["absolute", "relative"] = Field(
+        default="relative",
+        title="External Image Href Style",
+        description=(
+            "How to generate external image href paths when download_external_images is enabled. "
+            "Options: absolute, relative.\n"
+            "  - `relative` links are relative to the page"
+            "  - `absolute` links start from the configured output path"
+        ),
+    )
     filename_encoding: str = Field(
         default='"<":"_",">":"_",":":"_","\\"":"_","/":"_","\\\\":"_","|":"_","?":"_","*":"_","\\u0000":"_","[":"_","]":"_"',
         title="Filename Encoding",
