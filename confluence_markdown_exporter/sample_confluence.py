@@ -5,8 +5,6 @@ https://developer.atlassian.com/cloud/confluence/rest/v1/intro
 
 import functools
 import mimetypes
-import hashlib
-import requests
 import os
 import re
 import urllib.parse
@@ -895,141 +893,20 @@ class Page(Document):
 
             return md
 
-        def _get_external_image_info(self, image_url: str) -> dict[str, str]:
-            """Extract information from an external image URL.
-            
-            Returns:
-                Dictionary containing image_filename, image_extension, and image_hash
-            """
-            # Parse the URL to get the filename
-            parsed_url = urllib.parse.urlparse(image_url)
-            path = parsed_url.path
-            
-            # Extract filename and extension
-            filename = Path(path).name if path else "image"
-            if not filename or filename == "/":
-                filename = "image"
-            
-            # Extract extension
-            extension = Path(filename).suffix
-            
-            # Create a hash of the URL for unique identification
-            url_hash = hashlib.md5(image_url.encode()).hexdigest()[:12]
-            
-            # Valid image extensions
-            valid_image_extensions = {
-                ".jpg", ".jpeg", ".png", ".gif", ".svg", ".webp", 
-                ".bmp", ".tiff", ".tif", ".ico", ".avif"
-            }
-            
-            # If no extension or invalid extension (like .do, .php, .jsp), use default
-            if not extension or extension.lower() not in valid_image_extensions:
-                extension = ".png"  # Default for servlet URLs and other dynamic endpoints
-                # For servlet URLs, create a more meaningful filename
-                if any(servlet in filename.lower() for servlet in [".do", ".php", ".jsp", ".asp", ".aspx"]):
-                    filename = f"image_{url_hash}{extension}"
-            
-            return {
-                "image_filename": filename,
-                "image_extension": extension.lstrip("."),
-                "image_hash": url_hash,
-            }
-
-        def _download_external_image(self, image_url: str) -> Path | None:
-            """Download an external image and save it locally.
-            
-            Returns:
-                Path to the downloaded image file, or None if download failed
-            """
-            try:
-                # Get image info for path generation
-                image_info = self._get_external_image_info(image_url)
-                
-                # Generate template variables
-                template_vars = {
-                    **self.page._template_vars,
-                    **image_info,
-                }
-                
-                # Generate the export path
-                filepath_template = Template(settings.export.external_image_path.replace("{", "${"))
-                export_path = Path(filepath_template.safe_substitute(template_vars))
-                full_path = settings.export.output_path / export_path
-                
-                # Check if file already exists
-                if full_path.exists():
-                    return export_path
-                
-                # Download the image
-                print(f"Downloading external image: {image_url}")
-                response = requests.get(image_url, timeout=30)
-                response.raise_for_status()
-                
-                # Try to get the correct extension from content-type if not already set correctly
-                content_type = response.headers.get('content-type', '')
-                if content_type.startswith('image/'):
-                    guessed_ext = mimetypes.guess_extension(content_type)
-                    if guessed_ext and not image_info["image_filename"].endswith(guessed_ext):
-                        # Update the extension in template vars and regenerate path
-                        template_vars["image_extension"] = guessed_ext.lstrip(".")
-                        if not template_vars["image_filename"].endswith(guessed_ext):
-                            # Only update filename if it doesn't already have the right extension
-                            base_name = Path(template_vars["image_filename"]).stem
-                            template_vars["image_filename"] = f"{base_name}{guessed_ext}"
-                        
-                        # Regenerate the export path with correct extension
-                        export_path = Path(filepath_template.safe_substitute(template_vars))
-                        full_path = settings.export.output_path / export_path
-                
-                # Create directories if they don't exist
-                full_path.parent.mkdir(parents=True, exist_ok=True)
-                
-                # Save the image
-                save_file(full_path, response.content)
-                return export_path
-                
-            except Exception as e:
-                print(f"Failed to download external image {image_url}: {e}")
-                return None
-
         def convert_img(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:
             attachment = None
             if fid := el.get("data-media-id"):
                 attachment = self.page.get_attachment_by_file_id(str(fid))
 
-            if attachment is not None:
-                # Handle uploaded attachment
-                path = self._get_path_for_href(attachment.export_path, settings.export.attachment_href)
-                el["src"] = path.replace(" ", "%20")
-                if "_inline" in parent_tags:
-                    parent_tags.remove("_inline")  # Always show images.
-                return super().convert_img(el, text, parent_tags)                            
-            # Handle external images (new functionality)
-            src = el.get("src")
-            if src and (src.startswith("http://") or src.startswith("https://")):
-                alt_text = el.get("alt") or text or "External Image"
-                
-                if settings.export.download_external_images:
-                    # Download the image locally
-                    local_path = self._download_external_image(src)
-                    if local_path:
-                        # Use the local path
-                        href_path = self._get_path_for_href(local_path, settings.export.external_image_href)
-                        el["src"] = href_path.replace(" ", "%20")
-                        if "_inline" in parent_tags:
-                            parent_tags.remove("_inline")  # Always show images.
-                        return super().convert_img(el, text, parent_tags)
-                    else:
-                        # Download failed, fall back to external URL with a note
-                        return f"![{alt_text}]({src}) <!-- External image download failed -->"
-                else:
-                    # Keep external URL as-is
-                    return f"![{alt_text}]({src})"
+            if attachment is None:
+                href = el.get("href") or text
+                return f"[{text}]({href})"
 
-            # Fallback for any other case (no src or non-HTTP URL)
-            href = el.get("href") or el.get("src") or text
-            return f"[{text}]({href})"
-
+            path = self._get_path_for_href(attachment.export_path, settings.export.attachment_href)
+            el["src"] = path.replace(" ", "%20")
+            if "_inline" in parent_tags:
+                parent_tags.remove("_inline")  # Always show images.
+            return super().convert_img(el, text, parent_tags)
 
         def convert_drawio(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:
             if match := re.search(r"\|diagramName=(.+?)\|", str(el)):

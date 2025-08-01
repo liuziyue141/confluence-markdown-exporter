@@ -81,3 +81,41 @@ Key configuration areas:
 - `export.*` - Export behavior (paths, formatting, filenames)
 - `auth.confluence.*` - Confluence authentication
 - `connection_config.*` - HTTP connection settings
+
+
+
+
+
+
+IN PROGRESS: 
+
+### Refractoring NEEDED:
+
+# Confluence RAG Integration - Context for Claude
+
+## Project Overview
+This is a multi-tenant RAG (Retrieval-Augmented Generation) system that:
+1. Exports Confluence spaces to markdown files
+2. Indexes the markdown files into a vector database (PostgreSQL + pgvector)
+3. Provides retrieval capabilities for querying the indexed knowledge
+
+## Current State
+The codebase is overly complex with too many abstraction layers, defensive programming, and circular dependencies. We need to simplify it while maintaining the core functionality.
+
+## Key Dependencies
+- `confluence-markdown-exporter`: Original single-tenant CLI tool (DO NOT MODIFY)
+- `langchain`: For RAG operations (ParentDocumentRetriever)
+- `pgvector`: PostgreSQL vector database
+- `pydantic`/`dataclasses`: For configuration models
+
+## Core Concepts
+1. **Customer**: A tenant with their own Confluence instance and isolated data
+2. **Export**: Downloading Confluence pages as markdown files
+3. **Index**: Building vector embeddings from markdown files
+4. **Query**: Retrieving relevant documents based on questions
+
+## Architecture Principles
+- Keep it simple - no unnecessary abstractions
+- Direct implementation over complex patterns
+- Clear separation between batch operations (export/index) and services (query)
+- No global state except for monkey-patching the original exporter

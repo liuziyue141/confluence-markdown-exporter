@@ -1,0 +1,10 @@
+customer_id: acme_corp
+customer_name: "ACME Corporation"
+confluence_url: "https://ziyuetim085.atlassian.net/"
+confluence_username: "ziyuetim085@gmail.com"
+confluence_api_token: "${CONFLUENCE_TOKEN}"
+space_keys:
+  - "DEMO"
+embedding_model: "gemini-embedding-001"
+chunk_size: 1000
+db_connection: "${DB_CONNECTION}"
