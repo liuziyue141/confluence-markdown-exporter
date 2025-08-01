@@ -6,6 +6,5 @@ Confluence exports focused on space-level management.
 """
 
 from .space_exporter import SpaceExporter
-from .export_manager import ExportManager
 
-__all__ = ["SpaceExporter", "ExportManager"] 
+__all__ = ["SpaceExporter"] 
