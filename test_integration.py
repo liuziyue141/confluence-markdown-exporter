@@ -92,10 +92,10 @@ def cleanup_test_data():
     if customer_dir.exists() and (customer_dir / "config.yaml").exists():
         try:
             manager = CustomerManager()
-            from confluence_rag_integration.rag.rag_indexer import RAGIndexer
+            from confluence_rag_integration.rag.indexer_factory import IndexerFactory
             config = manager.load_customer(test_customer_id)
-            indexer = RAGIndexer(config)
-            indexer._clear_index()
+            indexer = IndexerFactory.create_indexer(config)
+            indexer.clear_index()
             print("🗑️  Cleared vector database entries")
         except Exception as e:
             print(f"📝 Note: Could not clear vector database: {str(e)}")

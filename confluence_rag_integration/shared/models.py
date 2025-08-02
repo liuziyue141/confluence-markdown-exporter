@@ -20,6 +20,7 @@ class CustomerConfig:
     chunk_size: int = 1000
     collection_name: str = None  # Auto-generated if None
     db_connection: str = "postgresql+psycopg://user:pass@localhost:5432/db"
+    indexer_type: str = "simple"  # "simple" or "parent_document"
     
     def __post_init__(self):
         if not self.collection_name:

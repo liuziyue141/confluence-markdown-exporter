@@ -1,0 +1,18 @@
+# Example customer configuration using the simple indexer
+customer_id: example_simple
+customer_name: Example Company (Simple Indexer)
+confluence_url: https://example.atlassian.net/
+confluence_username: user@example.com
+confluence_api_token: ${CONFLUENCE_API_TOKEN}
+space_keys:
+  - DEMO
+  - DOCS
+
+# RAG settings
+embedding_model: gemini-embedding-001
+chunk_size: 1000
+collection_name: example_simple_collection
+db_connection: postgresql+psycopg://user:pass@localhost:5432/db
+
+# Use the simple indexer (default)
+indexer_type: simple
