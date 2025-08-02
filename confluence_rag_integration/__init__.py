@@ -19,7 +19,7 @@ def export_customer(customer_id: str, space_keys: Optional[List[str]] = None):
 def index_customer(customer_id: str, clear_existing: bool = False):
     """Build RAG index for a customer."""
     from .rag.index_manager import IndexManager
-    from .rag.rag_indexer import RAGIndexer
+    from .rag.indexer_factory import IndexerFactory
     
     manager = CustomerManager()
     index_mgr = IndexManager(manager)
@@ -27,8 +27,8 @@ def index_customer(customer_id: str, clear_existing: bool = False):
     if clear_existing:
         # Clear existing index before building
         config = manager.load_customer(customer_id)
-        indexer = RAGIndexer(config)
-        indexer._clear_index()
+        indexer = IndexerFactory.create_indexer(config)
+        indexer.clear_index()
     
     return index_mgr.build_index(customer_id)
 

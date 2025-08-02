@@ -4,7 +4,8 @@ from typing import Dict, Any
 
 from ..customers.customer_manager import CustomerManager
 from ..shared.models import QueryResult
-from .rag_indexer import RAGIndexer
+from .indexer_factory import IndexerFactory
+from .base_indexer import BaseIndexer
 
 
 class QueryManager:
@@ -12,7 +13,7 @@ class QueryManager:
     
     def __init__(self, customer_manager: CustomerManager):
         self.customer_manager = customer_manager
-        self._indexers: Dict[str, RAGIndexer] = {}  # Cache RAGIndexer instances
+        self._indexers: Dict[str, BaseIndexer] = {}  # Cache indexer instances
     
     def query(self, customer_id: str, question: str, top_k: int = 3) -> QueryResult:
         """Query documents for a customer."""
@@ -28,11 +29,12 @@ class QueryManager:
                     error="Customer RAG system not ready. Run export and index first."
                 )
             
-            # Get or create RAGIndexer from cache
+            # Get or create indexer from cache
             indexer = self._get_indexer(customer_id)
             
             # Use retriever to get relevant documents
-            docs = indexer.retriever.invoke(question)[:top_k]
+            retriever = indexer.get_retriever()
+            docs = retriever.invoke(question)[:top_k]
             
             # Convert to simple format
             documents = []
@@ -59,10 +61,10 @@ class QueryManager:
                 error=str(e)
             )
     
-    def _get_indexer(self, customer_id: str) -> RAGIndexer:
-        """Get or create cached RAGIndexer for customer."""
+    def _get_indexer(self, customer_id: str) -> BaseIndexer:
+        """Get or create cached indexer for customer."""
         if customer_id not in self._indexers:
             config = self.customer_manager.load_customer(customer_id)
-            self._indexers[customer_id] = RAGIndexer(config)
+            self._indexers[customer_id] = IndexerFactory.create_indexer(config)
         
         return self._indexers[customer_id]

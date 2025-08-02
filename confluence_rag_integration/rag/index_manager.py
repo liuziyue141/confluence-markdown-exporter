@@ -6,7 +6,7 @@ from pathlib import Path
 
 from ..customers.customer_manager import CustomerManager
 from ..shared.models import IndexResult
-from .rag_indexer import RAGIndexer
+from .indexer_factory import IndexerFactory
 
 
 class IndexManager:
@@ -39,7 +39,7 @@ class IndexManager:
                 return result
             
             # Create indexer and build index
-            indexer = RAGIndexer(config)
+            indexer = IndexerFactory.create_indexer(config)
             index_result = indexer.build_index(export_path)
             
             # Convert to IndexResult
