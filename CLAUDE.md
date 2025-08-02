@@ -52,24 +52,37 @@ ruff format .
 - **Core Logic**: `confluence_markdown_exporter/confluence.py` - Page, Space, and Organization classes
 - **Utilities**: `confluence_markdown_exporter/utils/` - Configuration, export logic, type conversion
 
-### Multi-Tenant RAG Integration
-- **Customer Management**: `confluence_rag_integration/customers/` - Multi-tenant customer configuration
-- **Export Management**: `confluence_rag_integration/exporters/` - Space-level export orchestration
-- **RAG System**: `confluence_rag_integration/rag/` - Customer-specific RAG managers and query interfaces
-- **Shared Models**: `confluence_rag_integration/shared/` - Common data models and utilities
+### Multi-Tenant RAG Integration (Refactored)
 
-### Data Structure
+The project now includes a simplified multi-tenant RAG system that:
+1. Exports Confluence spaces to markdown files per customer
+2. Indexes markdown files into vector databases (PostgreSQL + pgvector)
+3. Provides retrieval capabilities for querying indexed knowledge
+
+#### Architecture Components
+- **Customer Management**: `confluence_rag_integration/customers/` - Customer config and state management
+- **Export Orchestration**: `confluence_rag_integration/exporters/` - Space export workflow
+- **RAG System**: `confluence_rag_integration/rag/` - Indexing and query functionality with multiple indexer types
+- **Shared Models**: `confluence_rag_integration/shared/` - Data models and configuration adapter
+
+#### Data Structure
 ```
 data/
 └── customers/
-    └── <customer_name>/
+    └── <customer_id>/
         ├── config.yaml          # Customer configuration
-        ├── state.json          # Export state tracking
+        ├── state.json          # Export and index state tracking
         ├── exports/            # Exported Markdown files
-        ├── vector_store/       # ChromaDB vector storage
-        ├── cache/              # Export caching
         └── logs/               # Customer-specific logs
 ```
+
+#### Key Features
+- **Multiple Indexer Types**: Support for different indexing strategies via `IndexerFactory`
+  - `SimpleIndexer`: Basic document indexing
+  - `ParentDocumentIndexer`: Advanced chunking with parent-child relationships
+- **Customer Isolation**: Each customer has separate data and vector store collections
+- **State Management**: Tracks export and indexing status per customer
+- **Query Caching**: Efficient retrieval with cached indexer instances
 
 ## Configuration System
 
@@ -119,3 +132,91 @@ The codebase is overly complex with too many abstraction layers, defensive progr
 - Direct implementation over complex patterns
 - Clear separation between batch operations (export/index) and services (query)
 - No global state except for monkey-patching the original exporter
+
+## Multi-Tenant RAG Integration Usage
+
+### Simple API Functions
+```python
+# Export Confluence spaces for a customer
+from confluence_rag_integration import export_customer
+result = export_customer("acme_corp", space_keys=["PROD", "ENG"])
+
+# Build/rebuild RAG index
+from confluence_rag_integration import index_customer
+result = index_customer("acme_corp", clear_existing=True)
+
+# Query the indexed knowledge
+from confluence_rag_integration import query_customer
+result = query_customer("acme_corp", "How do I reset my password?")
+```
+
+### Customer Configuration (config.yaml)
+```yaml
+customer_id: acme_corp
+customer_name: "ACME Corporation"
+
+# Confluence credentials
+confluence:
+  url: https://acme.atlassian.net/
+  username: admin@acme.com
+  api_token: ${ACME_CONFLUENCE_TOKEN}  # Supports env vars
+
+# Spaces to export
+spaces:
+  - key: PROD
+    name: "Product Documentation"
+    enabled: true
+  - key: ENG
+    name: "Engineering Wiki"
+    enabled: true
+
+# RAG settings (optional)
+rag:
+  indexer_type: "parent_document"  # or "simple"
+  embedding_model: "gemini-embedding-001"
+  chunk_size: 1000
+  db_connection: "postgresql+psycopg://user:pass@localhost:5432/db"
+```
+
+### Refactored Architecture
+
+#### Simplified Component Structure
+```
+confluence_rag_integration/
+├── __init__.py              # Simple API entry points
+├── customers/
+│   └── customer_manager.py  # Config/state management only
+├── exporters/
+│   └── space_exporter.py    # Export orchestration
+├── rag/
+│   ├── base_indexer.py      # Abstract base class
+│   ├── indexer_factory.py   # Creates indexers by type
+│   ├── simple_indexer.py    # Basic indexing
+│   ├── parent_document_indexer.py  # Advanced chunking
+│   ├── index_manager.py     # Index workflow
+│   └── query_manager.py     # Query service with caching
+└── shared/
+    ├── models.py            # CustomerConfig, CustomerState, Results
+    ├── config_adapter.py    # Bridge to original exporter
+    └── utils.py             # Shared utilities
+```
+
+#### Key Dependencies
+- `confluence-markdown-exporter`: Original single-tenant CLI tool (DO NOT MODIFY)
+- `langchain`: For RAG operations (ParentDocumentRetriever, embeddings)
+- `pgvector`: PostgreSQL vector database extension
+- `pydantic`/`dataclasses`: For configuration models
+
+#### Architecture Principles (Refactored)
+- **Direct Implementation**: No unnecessary abstractions or complex patterns
+- **Clear Separation**: Export/Index are batch operations, Query is a service
+- **Minimal Caching**: Only RAGIndexer instances cached in QueryManager
+- **Simple State**: Just track last operations and status in state.json
+- **Factory Pattern**: Support multiple indexer types without complexity
+- **Customer Isolation**: Each customer has separate data and vector store collections
+
+## Important Instruction Reminders
+- Do what has been asked; nothing more, nothing less
+- NEVER create files unless they're absolutely necessary
+- ALWAYS prefer editing existing files over creating new ones
+- NEVER proactively create documentation files unless explicitly requested
