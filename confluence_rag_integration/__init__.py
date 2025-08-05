@@ -33,8 +33,8 @@ def index_customer(customer_id: str, clear_existing: bool = False):
     return index_mgr.build_index(customer_id)
 
 
-def query_customer(customer_id: str, question: str):
+def query_customer(customer_id: str, question: str, top_k: int = 3):
     """Query documents for a customer."""
     manager = CustomerManager()
     query_mgr = QueryManager(manager)
-    return query_mgr.query(customer_id, question)
+    return query_mgr.query(customer_id, question, top_k)

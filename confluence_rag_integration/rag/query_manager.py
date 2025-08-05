@@ -15,7 +15,7 @@ class QueryManager:
         self.customer_manager = customer_manager
         self._indexers: Dict[str, BaseIndexer] = {}  # Cache indexer instances
     
-    def query(self, customer_id: str, question: str, top_k: int = 3) -> QueryResult:
+    def query(self, customer_id: str, question: str, top_k: int = 5) -> QueryResult:
         """Query documents for a customer."""
         try:
             # Check if customer is ready for queries
@@ -34,7 +34,7 @@ class QueryManager:
             
             # Use retriever to get relevant documents
             retriever = indexer.get_retriever()
-            docs = retriever.invoke(question)[:top_k]
+            docs = retriever.invoke(question, search_kwargs={"k": top_k})
             
             # Convert to simple format
             documents = []
