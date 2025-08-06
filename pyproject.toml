@@ -24,6 +24,7 @@ dependencies = [
     'tabulate',
     'tqdm',
     'typer',
+    'mcp[cli]',
 ]
 
 [project.optional-dependencies]

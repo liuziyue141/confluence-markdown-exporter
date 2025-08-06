@@ -1,0 +1,34 @@
+{
+  "mcpServers": {
+    "confluence-rag": {
+      "name": "Confluence RAG Knowledge Base",
+      "description": "MCP server that provides access to Confluence knowledge bases through RAG retrieval",
+      "command": "python",
+      "args": [
+        "-m",
+        "confluence_rag_integration.mcp_server"
+      ],
+      "env": {
+        "PYTHONPATH": ".",
+        "GOOGLE_API_KEY": "${GOOGLE_API_KEY}",
+        "ACME_CONFLUENCE_TOKEN": "${ACME_CONFLUENCE_TOKEN}",
+        "DB_CONNECTION": "${DB_CONNECTION}"
+      },
+      "cwd": "/Users/lindalee/Desktop/confluence-markdown-exporter",
+      "tools": [
+        {
+          "name": "retrieve_knowledge",
+          "description": "Search and retrieve relevant documentation from Confluence knowledge base"
+        },
+        {
+          "name": "list_customers",
+          "description": "List all available customers in the system"
+        },
+        {
+          "name": "get_customer_status",
+          "description": "Get the current status of a customer's RAG system"
+        }
+      ]
+    }
+  }
+}
