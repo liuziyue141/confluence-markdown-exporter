@@ -84,6 +84,33 @@ data/
 - **State Management**: Tracks export and indexing status per customer
 - **Query Caching**: Efficient retrieval with cached indexer instances
 
+## RAG Service Architecture Summary
+
+The multi-tenant RAG service provides AI-powered chat with Confluence knowledge bases:
+
+### Session Management
+- **Session Storage**: Metadata in `data/checkpoints/sessions.json`, conversations in memory
+- **Thread Format**: `customer_id::session_id` (e.g., `acme_corp::uuid`)
+- **Persistence**: Session metadata survives restarts, conversation history doesn't (yet)
+
+### Key Components
+- **LangGraph Agent**: Orchestrates chat and tool usage with `confluence_rag_agent.py`
+- **Memory Manager**: Handles session lifecycle with `FileSystemCheckpointer`
+- **Query Manager**: Cached RAG indexers for efficient retrieval
+- **Customer Isolation**: Separate data, vector stores, and sessions per tenant
+
+### Data Organization
+```
+data/
+├── checkpoints/sessions.json  # All session metadata
+├── customers/<customer_id>/   # Per-customer data
+│   ├── config.yaml            # Customer configuration
+│   ├── state.json             # Export/index tracking
+│   └── exports/               # Markdown files
+```
+
+For detailed architecture, see `service_architecture.md`.
+
 ## Configuration System
 
 The project uses a JSON-based configuration system stored in platform-specific app directories. Configuration can be managed through:

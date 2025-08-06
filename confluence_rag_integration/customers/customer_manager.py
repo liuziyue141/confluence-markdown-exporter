@@ -108,3 +108,21 @@ class CustomerManager:
         state_path = self.base_path / customer_id / "state.json"
         with open(state_path, 'w') as f:
             json.dump(state.__dict__, f, indent=2, default=str)
+    
+    def list_customers(self) -> list:
+        """List all available customers."""
+        customers = []
+        for customer_dir in self.base_path.iterdir():
+            if customer_dir.is_dir():
+                config_path = customer_dir / "config.yaml"
+                if config_path.exists():
+                    try:
+                        config = self.load_customer(customer_dir.name)
+                        customers.append({
+                            "customer_id": config.customer_id,
+                            "customer_name": config.customer_name
+                        })
+                    except Exception:
+                        # Skip customers with invalid configs
+                        pass
+        return customers

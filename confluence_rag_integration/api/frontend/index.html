@@ -1,0 +1,692 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Confluence RAG Agent Chat</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue', sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .container {
+            width: 90%;
+            max-width: 1200px;
+            height: 90vh;
+            background: white;
+            border-radius: 10px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            display: flex;
+            overflow: hidden;
+        }
+
+        /* Settings Panel */
+        .settings-panel {
+            width: 300px;
+            background: #f7f7f7;
+            padding: 20px;
+            border-right: 1px solid #e0e0e0;
+            overflow-y: auto;
+        }
+
+        .settings-panel h2 {
+            margin-bottom: 20px;
+            color: #333;
+            font-size: 18px;
+        }
+
+        .setting-group {
+            margin-bottom: 20px;
+        }
+
+        .setting-group label {
+            display: block;
+            margin-bottom: 5px;
+            color: #666;
+            font-size: 14px;
+        }
+
+        .setting-group select,
+        .setting-group input {
+            width: 100%;
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+
+        .setting-group input[type="range"] {
+            margin-bottom: 5px;
+        }
+
+        .range-value {
+            text-align: center;
+            color: #666;
+            font-size: 12px;
+        }
+
+        .btn {
+            width: 100%;
+            padding: 10px;
+            background: #667eea;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            font-size: 14px;
+            cursor: pointer;
+            transition: background 0.3s;
+        }
+
+        .btn:hover {
+            background: #5a67d8;
+        }
+
+        .btn-danger {
+            background: #e53e3e;
+            margin-top: 10px;
+        }
+
+        .btn-danger:hover {
+            background: #c53030;
+        }
+
+        /* Chat Container */
+        .chat-container {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .chat-header {
+            padding: 20px;
+            background: #667eea;
+            color: white;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .chat-header h1 {
+            font-size: 20px;
+        }
+
+        .session-info {
+            font-size: 12px;
+            opacity: 0.9;
+        }
+
+        /* Messages */
+        .messages {
+            flex: 1;
+            padding: 20px;
+            overflow-y: auto;
+            background: #fafafa;
+        }
+
+        .message {
+            margin-bottom: 20px;
+            display: flex;
+            animation: fadeIn 0.3s;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .message.user {
+            justify-content: flex-end;
+        }
+
+        .message-content {
+            max-width: 70%;
+            padding: 12px 16px;
+            border-radius: 8px;
+            box-shadow: 0 1px 2px rgba(0,0,0,0.1);
+        }
+
+        .message.user .message-content {
+            background: #667eea;
+            color: white;
+        }
+
+        .message.assistant .message-content {
+            background: white;
+            color: #333;
+        }
+
+        .message-time {
+            font-size: 11px;
+            opacity: 0.7;
+            margin-top: 5px;
+        }
+
+        .typing-indicator {
+            display: none;
+            padding: 10px;
+            background: white;
+            border-radius: 8px;
+            width: fit-content;
+            margin-bottom: 10px;
+        }
+
+        .typing-indicator.active {
+            display: block;
+        }
+
+        .typing-indicator span {
+            display: inline-block;
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #667eea;
+            margin: 0 2px;
+            animation: bounce 1.4s infinite ease-in-out;
+        }
+
+        .typing-indicator span:nth-child(1) { animation-delay: -0.32s; }
+        .typing-indicator span:nth-child(2) { animation-delay: -0.16s; }
+
+        @keyframes bounce {
+            0%, 80%, 100% { transform: scale(0); }
+            40% { transform: scale(1); }
+        }
+
+        /* Input Area */
+        .input-area {
+            padding: 20px;
+            background: white;
+            border-top: 1px solid #e0e0e0;
+            display: flex;
+            gap: 10px;
+        }
+
+        .input-area input {
+            flex: 1;
+            padding: 12px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+
+        .input-area button {
+            padding: 12px 24px;
+            background: #667eea;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: background 0.3s;
+        }
+
+        .input-area button:hover {
+            background: #5a67d8;
+        }
+
+        .input-area button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+
+        /* Status */
+        .status {
+            padding: 10px;
+            background: #f0f0f0;
+            text-align: center;
+            font-size: 12px;
+            color: #666;
+        }
+
+        .status.error {
+            background: #fee;
+            color: #c53030;
+        }
+
+        .status.success {
+            background: #efe;
+            color: #2f855a;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- Settings Panel -->
+        <div class="settings-panel">
+            <h2>Settings</h2>
+            
+            <div class="setting-group">
+                <label for="customer-select">Customer</label>
+                <select id="customer-select">
+                    <option value="acme_corp">ACME Corporation</option>
+                </select>
+            </div>
+
+            <div class="setting-group">
+                <label for="session-select">Session</label>
+                <select id="session-select">
+                    <option value="">New Session</option>
+                </select>
+                <button class="btn" onclick="createNewSession()">New Session</button>
+                <button class="btn btn-danger" onclick="clearSession()">Clear Session</button>
+            </div>
+
+            <div class="setting-group">
+                <label for="top-k-slider">Documents to Retrieve: <span id="top-k-value">3</span></label>
+                <input type="range" id="top-k-slider" min="1" max="10" value="3" onchange="updateTopK()">
+                <div class="range-value">1 (Precise) - 10 (Comprehensive)</div>
+            </div>
+
+            <div class="setting-group">
+                <label>Connection Status</label>
+                <div id="connection-status" class="status">Disconnected</div>
+            </div>
+
+            <div class="setting-group">
+                <button class="btn" onclick="loadCustomers()">Refresh Customers</button>
+            </div>
+        </div>
+
+        <!-- Chat Container -->
+        <div class="chat-container">
+            <div class="chat-header">
+                <h1>Confluence Knowledge Assistant</h1>
+                <div class="session-info">
+                    <div>Session: <span id="current-session">None</span></div>
+                    <div>Customer: <span id="current-customer">acme_corp</span></div>
+                </div>
+            </div>
+
+            <div class="messages" id="messages">
+                <div class="message assistant">
+                    <div class="message-content">
+                        <div>Hello! I'm your Confluence Knowledge Assistant. I can help you find information from your documentation. What would you like to know?</div>
+                        <div class="message-time"></div>
+                    </div>
+                </div>
+                <div class="typing-indicator" id="typing-indicator">
+                    <span></span>
+                    <span></span>
+                    <span></span>
+                </div>
+            </div>
+
+            <div class="input-area">
+                <input type="text" id="message-input" placeholder="Type your message..." onkeypress="handleKeyPress(event)">
+                <button id="send-button" onclick="sendMessage()">Send</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Global variables
+        let currentSessionId = null;
+        let currentCustomerId = 'acme_corp';
+        let topK = 3;
+        let ws = null;
+        let isConnected = false;
+
+        // Initialize on load
+        window.onload = () => {
+            loadCustomers();
+            loadSessions();
+            createNewSession();
+        };
+
+        // Load customers
+        async function loadCustomers() {
+            try {
+                const response = await fetch('/customers');
+                const data = await response.json();
+                
+                const select = document.getElementById('customer-select');
+                select.innerHTML = '';
+                
+                if (data.customers && data.customers.length > 0) {
+                    data.customers.forEach(customer => {
+                        const option = document.createElement('option');
+                        option.value = customer.customer_id;
+                        option.textContent = customer.customer_name || customer.customer_id;
+                        select.appendChild(option);
+                    });
+                } else {
+                    // Add default option if no customers
+                    const option = document.createElement('option');
+                    option.value = 'acme_corp';
+                    option.textContent = 'ACME Corporation';
+                    select.appendChild(option);
+                }
+                
+                currentCustomerId = select.value;
+                document.getElementById('current-customer').textContent = currentCustomerId;
+            } catch (error) {
+                console.error('Error loading customers:', error);
+                showStatus('Error loading customers', 'error');
+            }
+        }
+
+        // Load sessions
+        async function loadSessions() {
+            try {
+                const response = await fetch(`/sessions?customer_id=${currentCustomerId}`);
+                const data = await response.json();
+                
+                const select = document.getElementById('session-select');
+                select.innerHTML = '<option value="">New Session</option>';
+                
+                if (data.sessions && data.sessions.length > 0) {
+                    data.sessions.forEach(session => {
+                        const option = document.createElement('option');
+                        option.value = session.session_id;
+                        option.textContent = `Session ${session.session_id.substring(0, 8)}... (${session.message_count} messages)`;
+                        select.appendChild(option);
+                    });
+                }
+            } catch (error) {
+                console.error('Error loading sessions:', error);
+            }
+        }
+
+        // Create new session
+        async function createNewSession() {
+            try {
+                const response = await fetch('/sessions', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({customer_id: currentCustomerId})
+                });
+                
+                const data = await response.json();
+                currentSessionId = data.session_id;
+                
+                document.getElementById('current-session').textContent = currentSessionId.substring(0, 8) + '...';
+                
+                // Clear messages except welcome
+                const messagesDiv = document.getElementById('messages');
+                messagesDiv.innerHTML = `
+                    <div class="message assistant">
+                        <div class="message-content">
+                            <div>Hello! I'm your Confluence Knowledge Assistant. I can help you find information from your documentation. What would you like to know?</div>
+                            <div class="message-time">${getCurrentTime()}</div>
+                        </div>
+                    </div>
+                    <div class="typing-indicator" id="typing-indicator">
+                        <span></span>
+                        <span></span>
+                        <span></span>
+                    </div>
+                `;
+                
+                // Connect WebSocket
+                connectWebSocket();
+                
+                // Reload sessions
+                loadSessions();
+                
+                showStatus('New session created', 'success');
+            } catch (error) {
+                console.error('Error creating session:', error);
+                showStatus('Error creating session', 'error');
+            }
+        }
+
+        // Clear session
+        async function clearSession() {
+            if (!currentSessionId) {
+                showStatus('No active session', 'error');
+                return;
+            }
+            
+            if (!confirm('Are you sure you want to clear this session?')) {
+                return;
+            }
+            
+            try {
+                const response = await fetch(`/sessions/${currentSessionId}?customer_id=${currentCustomerId}`, {
+                    method: 'DELETE'
+                });
+                
+                if (response.ok) {
+                    showStatus('Session cleared', 'success');
+                    createNewSession();
+                }
+            } catch (error) {
+                console.error('Error clearing session:', error);
+                showStatus('Error clearing session', 'error');
+            }
+        }
+
+        // Connect WebSocket
+        function connectWebSocket() {
+            if (ws) {
+                ws.close();
+            }
+            
+            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const wsUrl = `${protocol}//${window.location.host}/ws/${currentSessionId}?customer_id=${currentCustomerId}`;
+            
+            ws = new WebSocket(wsUrl);
+            
+            ws.onopen = () => {
+                isConnected = true;
+                document.getElementById('connection-status').textContent = 'Connected';
+                document.getElementById('connection-status').className = 'status success';
+            };
+            
+            ws.onmessage = (event) => {
+                const data = JSON.parse(event.data);
+                
+                if (data.type === 'message') {
+                    addMessage(data.response, 'assistant');
+                } else if (data.type === 'typing') {
+                    const indicator = document.getElementById('typing-indicator');
+                    if (data.status === 'start') {
+                        indicator.classList.add('active');
+                    } else {
+                        indicator.classList.remove('active');
+                    }
+                }
+            };
+            
+            ws.onerror = (error) => {
+                console.error('WebSocket error:', error);
+                isConnected = false;
+                document.getElementById('connection-status').textContent = 'Error';
+                document.getElementById('connection-status').className = 'status error';
+            };
+            
+            ws.onclose = () => {
+                isConnected = false;
+                document.getElementById('connection-status').textContent = 'Disconnected';
+                document.getElementById('connection-status').className = 'status error';
+            };
+        }
+
+        // Send message
+        async function sendMessage() {
+            const input = document.getElementById('message-input');
+            const message = input.value.trim();
+            
+            if (!message) return;
+            
+            // Add user message
+            addMessage(message, 'user');
+            
+            // Clear input
+            input.value = '';
+            
+            // Disable send button
+            document.getElementById('send-button').disabled = true;
+            
+            if (isConnected && ws && ws.readyState === WebSocket.OPEN) {
+                // Send via WebSocket
+                ws.send(JSON.stringify({
+                    message: message,
+                    top_k: topK
+                }));
+            } else {
+                // Fallback to REST API
+                try {
+                    const response = await fetch('/chat', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({
+                            message: message,
+                            session_id: currentSessionId,
+                            customer_id: currentCustomerId,
+                            top_k: topK
+                        })
+                    });
+                    
+                    const data = await response.json();
+                    addMessage(data.response, 'assistant');
+                } catch (error) {
+                    console.error('Error sending message:', error);
+                    addMessage('Sorry, an error occurred. Please try again.', 'assistant');
+                }
+            }
+            
+            // Re-enable send button
+            document.getElementById('send-button').disabled = false;
+        }
+
+        // Add message to chat
+        function addMessage(content, role) {
+            const messagesDiv = document.getElementById('messages');
+            const typingIndicator = document.getElementById('typing-indicator');
+            
+            const messageDiv = document.createElement('div');
+            messageDiv.className = `message ${role}`;
+            
+            messageDiv.innerHTML = `
+                <div class="message-content">
+                    <div>${escapeHtml(content)}</div>
+                    <div class="message-time">${getCurrentTime()}</div>
+                </div>
+            `;
+            
+            // Insert before typing indicator
+            messagesDiv.insertBefore(messageDiv, typingIndicator);
+            
+            // Scroll to bottom
+            messagesDiv.scrollTop = messagesDiv.scrollHeight;
+        }
+
+        // Handle key press
+        function handleKeyPress(event) {
+            if (event.key === 'Enter' && !event.shiftKey) {
+                event.preventDefault();
+                sendMessage();
+            }
+        }
+
+        // Update top-k value
+        function updateTopK() {
+            const slider = document.getElementById('top-k-slider');
+            topK = parseInt(slider.value);
+            document.getElementById('top-k-value').textContent = topK;
+        }
+
+        // Show status message
+        function showStatus(message, type = '') {
+            const status = document.createElement('div');
+            status.className = `status ${type}`;
+            status.textContent = message;
+            
+            // Find or create status container
+            let statusContainer = document.getElementById('status-container');
+            if (!statusContainer) {
+                statusContainer = document.createElement('div');
+                statusContainer.id = 'status-container';
+                statusContainer.style.position = 'fixed';
+                statusContainer.style.top = '20px';
+                statusContainer.style.right = '20px';
+                statusContainer.style.zIndex = '1000';
+                document.body.appendChild(statusContainer);
+            }
+            
+            statusContainer.appendChild(status);
+            
+            // Remove after 3 seconds
+            setTimeout(() => {
+                status.remove();
+            }, 3000);
+        }
+
+        // Get current time
+        function getCurrentTime() {
+            const now = new Date();
+            return now.toLocaleTimeString('en-US', {hour: '2-digit', minute: '2-digit'});
+        }
+
+        // Escape HTML
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        // Handle customer change
+        document.getElementById('customer-select').addEventListener('change', (e) => {
+            currentCustomerId = e.target.value;
+            document.getElementById('current-customer').textContent = currentCustomerId;
+            loadSessions();
+            createNewSession();
+        });
+
+        // Handle session change
+        document.getElementById('session-select').addEventListener('change', (e) => {
+            if (e.target.value) {
+                currentSessionId = e.target.value;
+                document.getElementById('current-session').textContent = currentSessionId.substring(0, 8) + '...';
+                connectWebSocket();
+                
+                // Load session history
+                loadSessionHistory();
+            } else {
+                createNewSession();
+            }
+        });
+
+        // Load session history
+        async function loadSessionHistory() {
+            try {
+                const response = await fetch(`/sessions/${currentSessionId}/history?customer_id=${currentCustomerId}`);
+                const data = await response.json();
+                
+                const messagesDiv = document.getElementById('messages');
+                messagesDiv.innerHTML = '';
+                
+                if (data.history && data.history.length > 0) {
+                    data.history.forEach(msg => {
+                        addMessage(msg.content, msg.role === 'user' ? 'user' : 'assistant');
+                    });
+                } else {
+                    // Add welcome message if no history
+                    addMessage("Hello! I'm your Confluence Knowledge Assistant. How can I help you today?", 'assistant');
+                }
+                
+                // Add typing indicator at the end
+                const typingIndicator = document.createElement('div');
+                typingIndicator.className = 'typing-indicator';
+                typingIndicator.id = 'typing-indicator';
+                typingIndicator.innerHTML = '<span></span><span></span><span></span>';
+                messagesDiv.appendChild(typingIndicator);
+                
+            } catch (error) {
+                console.error('Error loading history:', error);
+            }
+        }
+    </script>
+</body>
+</html>
