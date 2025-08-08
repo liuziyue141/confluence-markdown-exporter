@@ -5,7 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Set
 import uuid
 import logging
 from pathlib import Path
@@ -13,6 +13,7 @@ from pathlib import Path
 from ..graphs.confluence_rag_agent import create_agent
 from ..graphs.memory_manager import create_memory_manager
 from ..customers.customer_manager import CustomerManager
+from ..rag.query_manager import QueryManager
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -43,6 +44,7 @@ memory_manager = create_memory_manager(use_postgresql=False)
 agent = create_agent(use_persistent_memory=True)
 agent.checkpointer = memory_manager.get_checkpointer()
 customer_manager = CustomerManager()
+query_manager = QueryManager(customer_manager)
 
 
 # Request/Response models
@@ -75,6 +77,31 @@ class SessionInfo(BaseModel):
     message_count: int = 0
 
 
+class FileQueryRequest(BaseModel):
+    """File query request model."""
+    query: str
+    customer_id: str = "acme_corp"
+    chunk_size: int = 10
+
+
+class FileResult(BaseModel):
+    """Single file result."""
+    file_path: str
+    file_name: str
+    content: str
+    metadata: Dict[str, Any] = {}
+
+
+class FileQueryResponse(BaseModel):
+    """File query response model."""
+    query: str
+    customer_id: str
+    files: List[FileResult]
+    total_files: int
+    status: str
+    error: Optional[str] = None
+
+
 # API Endpoints
 @app.get("/")
 async def root():
@@ -83,6 +110,15 @@ async def root():
     if frontend_path.exists():
         return FileResponse(frontend_path)
     return {"message": "Confluence RAG Agent API", "docs": "/docs"}
+
+
+@app.get("/demo")
+async def demo():
+    """Demo endpoint - serve the demo frontend."""
+    demo_path = Path(__file__).parent / "frontend" / "demo.html"
+    if demo_path.exists():
+        return FileResponse(demo_path)
+    return {"message": "Demo not found", "main": "/"}
 
 
 @app.get("/health")
@@ -100,6 +136,80 @@ async def list_customers():
     except Exception as e:
         logger.error(f"Error listing customers: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/query-files")
+async def query_files(request: FileQueryRequest) -> FileQueryResponse:
+    """
+    Query for relevant files based on semantic search.
+    Returns full file contents instead of chunks.
+    """
+    try:
+        # Query using the query manager to get chunks
+        result = query_manager.query(
+            customer_id=request.customer_id,
+            question=request.query,
+            top_k=request.chunk_size
+        )
+        
+        if result.status != "success":
+            return FileQueryResponse(
+                query=request.query,
+                customer_id=request.customer_id,
+                files=[],
+                total_files=0,
+                status=result.status,
+                error=result.error
+            )
+        
+        # Extract unique file paths from chunks
+        unique_files: Set[str] = set()
+        file_metadata: Dict[str, Dict] = {}
+        
+        for doc in result.documents:
+            source = doc.get("source", "")
+            if source and source != "unknown":
+                unique_files.add(source)
+                # Store metadata for each file
+                if source not in file_metadata:
+                    file_metadata[source] = doc.get("metadata", {})
+        
+        # Read full content of each unique file
+        files: List[FileResult] = []
+        for file_path in sorted(unique_files):
+            try:
+                path = Path(file_path)
+                if path.exists():
+                    content = path.read_text(encoding='utf-8')
+                    files.append(FileResult(
+                        file_path=str(file_path),
+                        file_name=path.name,
+                        content=content,
+                        metadata=file_metadata.get(file_path, {})
+                    ))
+                else:
+                    logger.warning(f"File not found: {file_path}")
+            except Exception as e:
+                logger.error(f"Error reading file {file_path}: {str(e)}")
+        
+        return FileQueryResponse(
+            query=request.query,
+            customer_id=request.customer_id,
+            files=files,
+            total_files=len(files),
+            status="success"
+        )
+        
+    except Exception as e:
+        logger.error(f"Error in query-files endpoint: {str(e)}")
+        return FileQueryResponse(
+            query=request.query,
+            customer_id=request.customer_id,
+            files=[],
+            total_files=0,
+            status="error",
+            error=str(e)
+        )
 
 
 @app.post("/chat")

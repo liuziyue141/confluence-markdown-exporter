@@ -3,6 +3,7 @@
 import time
 from datetime import datetime
 from typing import List, Optional
+from tqdm import tqdm
 
 from ..customers.customer_manager import CustomerManager
 from ..shared.config_adapter import ConfigAdapter
@@ -42,18 +43,59 @@ class SpaceExporter:
                 try:
                     # Import and use original space export functionality
                     from confluence_markdown_exporter.confluence import Space
+                    from confluence_markdown_exporter.utils.app_data_store import get_settings
+                    
+                    # Get rate limiting settings
+                    settings = get_settings()
+                    request_delay = getattr(settings.export, 'request_delay', 0.5)
+                    batch_size = getattr(settings.export, 'rate_limit_batch_size', 50)
+                    batch_pause = getattr(settings.export, 'rate_limit_batch_pause', 5.0)
                     
                     space = Space.from_key(space_key)
+                    page_list = space.pages
                     
-                    # Export all pages in space
-                    for page_id in space.pages:
+                    # Export all pages in space with rate limiting and progress bar
+                    print(f"Exporting space {space_key} ({len(page_list)} pages)...")
+                    consecutive_failures = 0
+                    max_consecutive_failures = 5
+                    
+                    for idx, page_id in enumerate(tqdm(page_list, desc=f"Space {space_key}", smoothing=0.05)):
                         try:
                             from confluence_markdown_exporter.confluence import Page
                             page = Page.from_id(page_id)
                             page.export()
                             pages_exported += 1
+                            consecutive_failures = 0  # Reset on success
+                            
+                            # Add delay between requests to avoid rate limiting
+                            if request_delay > 0 and idx < len(page_list) - 1:
+                                time.sleep(request_delay)
+                            
+                            # Add longer pause every batch_size requests
+                            if batch_size > 0 and (idx + 1) % batch_size == 0 and idx < len(page_list) - 1:
+                                tqdm.write(f"Rate limit pause ({batch_pause}s) after {idx + 1} pages...")
+                                time.sleep(batch_pause)
+                                
                         except Exception as e:
-                            errors.append(f"Failed to export page {page_id}: {str(e)}")
+                            error_msg = f"Failed to export page {page_id}: {str(e)}"
+                            errors.append(error_msg)
+                            consecutive_failures += 1
+                            
+                            # Log the error for visibility
+                            tqdm.write(f"⚠️  {error_msg}")
+                            
+                            # If too many consecutive failures, try to reset the connection
+                            if consecutive_failures >= max_consecutive_failures:
+                                tqdm.write(f"❌ Too many consecutive failures ({consecutive_failures}). Attempting to reset connection...")
+                                try:
+                                    # Re-initialize the confluence connection
+                                    from confluence_markdown_exporter.api_clients import get_confluence_instance
+                                    confluence = get_confluence_instance()
+                                    consecutive_failures = 0
+                                    tqdm.write("✅ Connection reset successful, continuing...")
+                                except Exception as reset_error:
+                                    tqdm.write(f"❌ Failed to reset connection: {str(reset_error)}")
+                                    break  # Stop processing this space
                             
                 except Exception as e:
                     errors.append(f"Failed to export space {space_key}: {str(e)}")

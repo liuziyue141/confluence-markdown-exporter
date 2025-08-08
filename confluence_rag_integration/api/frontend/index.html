@@ -335,12 +335,14 @@
         let topK = 3;
         let ws = null;
         let isConnected = false;
+        let skipSessionChangeHandler = false;  // Flag to prevent automatic session creation
 
         // Initialize on load
         window.onload = () => {
             loadCustomers();
             loadSessions();
-            createNewSession();
+            // Don't automatically create a session on page load
+            // Users should explicitly click "New Session" button
         };
 
         // Load customers
@@ -382,6 +384,14 @@
                 const data = await response.json();
                 
                 const select = document.getElementById('session-select');
+                
+                // Prevent change event from firing when rebuilding dropdown
+                skipSessionChangeHandler = true;
+                
+                // Save current value
+                const currentValue = select.value;
+                
+                // Rebuild dropdown
                 select.innerHTML = '<option value="">New Session</option>';
                 
                 if (data.sessions && data.sessions.length > 0) {
@@ -392,8 +402,16 @@
                         select.appendChild(option);
                     });
                 }
+                
+                // Restore the value (this might trigger change but flag prevents handler)
+                select.value = currentValue || '';
+                
+                // Re-enable change handler
+                skipSessionChangeHandler = false;
+                
             } catch (error) {
                 console.error('Error loading sessions:', error);
+                skipSessionChangeHandler = false; // Make sure to reset flag on error
             }
         }
 
@@ -458,7 +476,38 @@
                 
                 if (response.ok) {
                     showStatus('Session cleared', 'success');
-                    createNewSession();
+                    
+                    // Reset session state
+                    currentSessionId = null;
+                    document.getElementById('current-session').textContent = 'None';
+                    
+                    // Reset session selector to "New Session"
+                    document.getElementById('session-select').value = '';
+                    
+                    // Clear messages
+                    const messagesDiv = document.getElementById('messages');
+                    messagesDiv.innerHTML = `
+                        <div class="message assistant">
+                            <div class="message-content">
+                                <div>Session cleared. Click "New Session" to start a new conversation.</div>
+                                <div class="message-time">${getCurrentTime()}</div>
+                            </div>
+                        </div>
+                        <div class="typing-indicator" id="typing-indicator">
+                            <span></span>
+                            <span></span>
+                            <span></span>
+                        </div>
+                    `;
+                    
+                    // Disconnect WebSocket if connected
+                    if (ws) {
+                        ws.close();
+                        ws = null;
+                    }
+                    
+                    // Reload sessions list
+                    loadSessions();
                 }
             } catch (error) {
                 console.error('Error clearing session:', error);
@@ -518,6 +567,12 @@
             const message = input.value.trim();
             
             if (!message) return;
+            
+            // Check if there's an active session
+            if (!currentSessionId) {
+                showStatus('Please create a new session first', 'error');
+                return;
+            }
             
             // Add user message
             addMessage(message, 'user');
@@ -641,11 +696,44 @@
             currentCustomerId = e.target.value;
             document.getElementById('current-customer').textContent = currentCustomerId;
             loadSessions();
-            createNewSession();
+            // Don't automatically create a new session when changing customers
+            // Reset to no active session
+            currentSessionId = null;
+            document.getElementById('current-session').textContent = 'None';
+            
+            // Reset session selector
+            document.getElementById('session-select').value = '';
+            
+            // Disconnect WebSocket if connected
+            if (ws) {
+                ws.close();
+                ws = null;
+            }
+            
+            // Show prompt to create new session
+            const messagesDiv = document.getElementById('messages');
+            messagesDiv.innerHTML = `
+                <div class="message assistant">
+                    <div class="message-content">
+                        <div>Customer changed to ${currentCustomerId}. Click "New Session" button to start a new conversation.</div>
+                        <div class="message-time">${getCurrentTime()}</div>
+                    </div>
+                </div>
+                <div class="typing-indicator" id="typing-indicator">
+                    <span></span>
+                    <span></span>
+                    <span></span>
+                </div>
+            `;
         });
 
         // Handle session change
         document.getElementById('session-select').addEventListener('change', (e) => {
+            // Skip if flag is set (programmatic change)
+            if (skipSessionChangeHandler) {
+                return;
+            }
+            
             if (e.target.value) {
                 currentSessionId = e.target.value;
                 document.getElementById('current-session').textContent = currentSessionId.substring(0, 8) + '...';
@@ -654,7 +742,32 @@
                 // Load session history
                 loadSessionHistory();
             } else {
-                createNewSession();
+                // Don't automatically create a new session
+                // Just show a message prompting user to click "New Session" button
+                currentSessionId = null;
+                document.getElementById('current-session').textContent = 'None';
+                
+                // Disconnect WebSocket if connected
+                if (ws) {
+                    ws.close();
+                    ws = null;
+                }
+                
+                // Clear messages and show prompt
+                const messagesDiv = document.getElementById('messages');
+                messagesDiv.innerHTML = `
+                    <div class="message assistant">
+                        <div class="message-content">
+                            <div>Click "New Session" button to start a new conversation.</div>
+                            <div class="message-time">${getCurrentTime()}</div>
+                        </div>
+                    </div>
+                    <div class="typing-indicator" id="typing-indicator">
+                        <span></span>
+                        <span></span>
+                        <span></span>
+                    </div>
+                `;
             }
         });
 

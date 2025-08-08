@@ -1,0 +1,45 @@
+# Customer Configuration Template
+# Edit this file with your customer's details
+
+# Required: Unique identifier for the customer (no spaces, lowercase recommended)
+customer_id: your_customer_id
+
+# Required: Display name for the customer
+customer_name: "Your Customer Name"
+
+# Required: Confluence instance URL (must end with /)
+confluence_url: "https://your-instance.atlassian.net/"
+
+# Required: Confluence username (usually email)
+confluence_username: "your-email@example.com"
+
+# Required: Confluence API token
+# Can use environment variable: ${CONFLUENCE_TOKEN}
+# Get token from: https://id.atlassian.com/manage-profile/security/api-tokens
+confluence_api_token: "${CONFLUENCE_TOKEN}"
+
+# Required: List of Confluence space keys to export
+# Find space keys in Confluence URL or space settings
+space_keys:
+  - "SPACE1"
+  - "SPACE2"
+  - "SPACE3"
+
+# Optional: Embedding model for RAG (default: gemini-embedding-001)
+# Options: gemini-embedding-001, text-embedding-ada-002, etc.
+embedding_model: "gemini-embedding-001"
+
+# Optional: Chunk size for document splitting (default: 1000)
+# Smaller = more precise retrieval, Larger = more context
+chunk_size: 1000
+
+# Optional: Database connection string for vector storage
+# Can use environment variable: ${DB_CONNECTION}
+# Format: postgresql+psycopg://user:password@host:port/database
+db_connection: "${DB_CONNECTION}"
+
+# Optional: Indexer type (default: simple)
+# Options: 
+#   - simple: Basic document indexing
+#   - parent_document: Advanced chunking with parent-child relationships
+indexer_type: "simple"

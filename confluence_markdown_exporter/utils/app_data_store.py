@@ -56,9 +56,9 @@ class ConnectionConfig(BaseModel):
         description="Maximum number of retry attempts before giving up.",
     )
     retry_status_codes: list[int] = Field(
-        default_factory=lambda: [413, 429, 502, 503, 504],
+        default_factory=lambda: [401, 403, 413, 429, 502, 503, 504],
         title="Retry Status Codes",
-        description="HTTP status codes that should trigger a retry.",
+        description="HTTP status codes that should trigger a retry. Includes 401/403 for auth issues after rate limiting.",
     )
     verify_ssl: bool = Field(
         default=True,
@@ -261,6 +261,36 @@ class ExportConfig(BaseModel):
             "Whether to include the document title in the exported markdown file. "
             "If enabled, the title will be added as a top-level heading."
         ),
+    )
+    request_delay: float = Field(
+        default=0.5,
+        title="Request Delay",
+        description=(
+            "Delay in seconds between API requests to avoid rate limiting. "
+            "Set to 0 to disable delays. Recommended: 0.5-1.0 seconds for large exports."
+        ),
+        ge=0.0,
+        le=10.0,
+    )
+    rate_limit_batch_size: int = Field(
+        default=50,
+        title="Rate Limit Batch Size",
+        description=(
+            "Number of requests before adding a longer pause. "
+            "Set to 0 to disable batch pauses. Recommended: 50-100 for strict rate limits."
+        ),
+        ge=0,
+        le=1000,
+    )
+    rate_limit_batch_pause: float = Field(
+        default=5.0,
+        title="Rate Limit Batch Pause",
+        description=(
+            "Pause duration in seconds after each batch of requests. "
+            "Applied every rate_limit_batch_size requests. Recommended: 5-10 seconds."
+        ),
+        ge=0.0,
+        le=60.0,
     )
 
 

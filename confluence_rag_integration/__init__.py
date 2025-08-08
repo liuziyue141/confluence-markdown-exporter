@@ -7,6 +7,8 @@ from .rag.query_manager import QueryManager
 
 __version__ = "0.1.0"
 __author__ = "Confluence RAG Integration Team"
+# from dotenv import load_dotenv
+# load_dotenv()
 
 
 def export_customer(customer_id: str, space_keys: Optional[List[str]] = None):

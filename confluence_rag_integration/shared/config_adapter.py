@@ -26,7 +26,10 @@ class ConfigAdapter:
         set_setting("export.output_path", export_path)
         set_setting("export.page_breadcrumbs", True)
         set_setting("export.include_document_title", True)
-        set_setting("export.download_external_images", True)
+        
+        # Control external image downloads (disabled by default to prevent timeout issues)
+        download_images = getattr(customer_config, 'download_external_images', False)
+        set_setting("export.download_external_images", download_images)
         
         # Get Confluence client using the global configuration
         confluence = get_confluence_instance()

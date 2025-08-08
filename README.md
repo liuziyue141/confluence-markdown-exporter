@@ -144,11 +144,14 @@ This will open a menu where you can:
 | export.filename_encoding | Character mapping for filename encoding. | Default mappings for forbidden characters. |
 | export.filename_length | Maximum length of filenames. | 255 |
 | export.include_document_title | Whether to include the document title in the exported markdown file. | True |
+| export.request_delay | Delay in seconds between API requests to avoid rate limiting | 0.5 |
+| export.rate_limit_batch_size | Number of requests before adding a longer pause | 50 |
+| export.rate_limit_batch_pause | Pause duration in seconds after each batch of requests | 5.0 |
 | connection_config.backoff_and_retry | Enable automatic retry with exponential backoff | True |
 | connection_config.backoff_factor | Multiplier for exponential backoff | 2 |
 | connection_config.max_backoff_seconds | Maximum seconds to wait between retries | 60 |
 | connection_config.max_backoff_retries | Maximum number of retry attempts | 5 |
-| connection_config.retry_status_codes | HTTP status codes that trigger a retry | \[413, 429, 502, 503, 504\] |
+| connection_config.retry_status_codes | HTTP status codes that trigger a retry | \[401, 403, 413, 429, 502, 503, 504\] |
 | connection_config.verify_ssl | Whether to verify SSL certificates for HTTPS requests. | True |
 | auth.confluence.url | Confluence instance URL | "" |
 | auth.confluence.username | Confluence username/email | "" |
@@ -207,6 +210,7 @@ It generally was tested on:
 ## Known Issues
 1. **Missing Attachment File ID on Server**: For some Confluence Server version/configuration the attachment file ID might not be provided (https://github.com/Spenhouet/confluence-markdown-exporter/issues/39). In the default configuration, this is used for the export path. Solution: Adjust the attachment path in the export config and use the `{attachment_id}` or `{attachment_title}` instead.
 2. **Connection Issues when behind Proxy or VPN**: There might be connection issues if your Confluence Server is behind a proxy or VPN (https://github.com/Spenhouet/confluence-markdown-exporter/issues/38). If you experience issues, help to fix this is appreciated.
+3. **Rate Limiting with Large Exports**: When exporting large spaces (100+ pages), you may encounter rate limiting from your Confluence instance. Symptoms include only the first 100 pages downloading successfully, with remaining pages being skipped. Solution: Configure the rate limiting settings (`export.request_delay`, `export.rate_limit_batch_size`, `export.rate_limit_batch_pause`) to add delays between API requests. Default values should work for most instances, but you may need to increase them for stricter rate limits.
 
 ## Contributing
 

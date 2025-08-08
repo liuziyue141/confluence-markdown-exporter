@@ -9,6 +9,7 @@ import hashlib
 import requests
 import os
 import re
+import time
 import urllib.parse
 from collections.abc import Set
 from os import PathLike
@@ -326,6 +327,7 @@ class Page(Document):
     editor2: str
     labels: list["Label"]
     attachments: list["Attachment"]
+    url: str | None = None
 
     @property
     def descendants(self) -> list[int]:
@@ -475,6 +477,15 @@ class Page(Document):
 
     @classmethod
     def from_json(cls, data: JsonResponse) -> "Page":
+        # Build the page URL from _links if available
+        url = None
+        if "_links" in data:
+            links = data["_links"]
+            base = links.get("base", "")
+            webui = links.get("webui", "")
+            if base and webui:
+                url = f"{base}{webui}"
+
         return cls(
             id=data.get("id", 0),
             title=data.get("title", ""),
@@ -488,6 +499,7 @@ class Page(Document):
             ],
             attachments=Attachment.from_page_id(data.get("id", 0)),
             ancestors=[ancestor.get("id") for ancestor in data.get("ancestors", [])][1:],
+            url=url,
         )
 
     @classmethod
@@ -500,7 +512,7 @@ class Page(Document):
                     confluence.get_page_by_id(
                         page_id,
                         expand="body.view,body.export_view,body.editor2,metadata.labels,"
-                        "metadata.properties,ancestors",
+                        "metadata.properties,ancestors,_links",
                     ),
                 )
             )
@@ -517,6 +529,7 @@ class Page(Document):
                 labels=[],
                 attachments=[],
                 ancestors=[],
+                url=None,
             )
 
     @classmethod
@@ -573,6 +586,10 @@ class Page(Document):
         def front_matter(self) -> str:
             indent = self.options["front_matter_indent"]
             self.set_page_properties(tags=self.labels)
+
+            # Add page URL to front matter if available
+            if self.page.url:
+                self.set_page_properties(url=self.page.url)
 
             if not self.page_properties:
                 return ""
@@ -897,38 +914,50 @@ class Page(Document):
 
         def _get_external_image_info(self, image_url: str) -> dict[str, str]:
             """Extract information from an external image URL.
-            
+
             Returns:
                 Dictionary containing image_filename, image_extension, and image_hash
             """
             # Parse the URL to get the filename
             parsed_url = urllib.parse.urlparse(image_url)
             path = parsed_url.path
-            
+
             # Extract filename and extension
             filename = Path(path).name if path else "image"
             if not filename or filename == "/":
                 filename = "image"
-            
+
             # Extract extension
             extension = Path(filename).suffix
-            
+
             # Create a hash of the URL for unique identification
             url_hash = hashlib.md5(image_url.encode()).hexdigest()[:12]
-            
+
             # Valid image extensions
             valid_image_extensions = {
-                ".jpg", ".jpeg", ".png", ".gif", ".svg", ".webp", 
-                ".bmp", ".tiff", ".tif", ".ico", ".avif"
+                ".jpg",
+                ".jpeg",
+                ".png",
+                ".gif",
+                ".svg",
+                ".webp",
+                ".bmp",
+                ".tiff",
+                ".tif",
+                ".ico",
+                ".avif",
             }
-            
+
             # If no extension or invalid extension (like .do, .php, .jsp), use default
             if not extension or extension.lower() not in valid_image_extensions:
                 extension = ".png"  # Default for servlet URLs and other dynamic endpoints
                 # For servlet URLs, create a more meaningful filename
-                if any(servlet in filename.lower() for servlet in [".do", ".php", ".jsp", ".asp", ".aspx"]):
+                if any(
+                    servlet in filename.lower()
+                    for servlet in [".do", ".php", ".jsp", ".asp", ".aspx"]
+                ):
                     filename = f"image_{url_hash}{extension}"
-            
+
             return {
                 "image_filename": filename,
                 "image_extension": extension.lstrip("."),
@@ -937,37 +966,37 @@ class Page(Document):
 
         def _download_external_image(self, image_url: str) -> Path | None:
             """Download an external image and save it locally.
-            
+
             Returns:
                 Path to the downloaded image file, or None if download failed
             """
             try:
                 # Get image info for path generation
                 image_info = self._get_external_image_info(image_url)
-                
+
                 # Generate template variables
                 template_vars = {
                     **self.page._template_vars,
                     **image_info,
                 }
-                
+
                 # Generate the export path
                 filepath_template = Template(settings.export.external_image_path.replace("{", "${"))
                 export_path = Path(filepath_template.safe_substitute(template_vars))
                 full_path = settings.export.output_path / export_path
-                
+
                 # Check if file already exists
                 if full_path.exists():
                     return export_path
-                
+
                 # Download the image
                 print(f"Downloading external image: {image_url}")
                 response = requests.get(image_url, timeout=30)
                 response.raise_for_status()
-                
+
                 # Try to get the correct extension from content-type if not already set correctly
-                content_type = response.headers.get('content-type', '')
-                if content_type.startswith('image/'):
+                content_type = response.headers.get("content-type", "")
+                if content_type.startswith("image/"):
                     guessed_ext = mimetypes.guess_extension(content_type)
                     if guessed_ext and not image_info["image_filename"].endswith(guessed_ext):
                         # Update the extension in template vars and regenerate path
@@ -976,18 +1005,18 @@ class Page(Document):
                             # Only update filename if it doesn't already have the right extension
                             base_name = Path(template_vars["image_filename"]).stem
                             template_vars["image_filename"] = f"{base_name}{guessed_ext}"
-                        
+
                         # Regenerate the export path with correct extension
                         export_path = Path(filepath_template.safe_substitute(template_vars))
                         full_path = settings.export.output_path / export_path
-                
+
                 # Create directories if they don't exist
                 full_path.parent.mkdir(parents=True, exist_ok=True)
-                
+
                 # Save the image
                 save_file(full_path, response.content)
                 return export_path
-                
+
             except Exception as e:
                 print(f"Failed to download external image {image_url}: {e}")
                 return None
@@ -999,22 +1028,26 @@ class Page(Document):
 
             if attachment is not None:
                 # Handle uploaded attachment
-                path = self._get_path_for_href(attachment.export_path, settings.export.attachment_href)
+                path = self._get_path_for_href(
+                    attachment.export_path, settings.export.attachment_href
+                )
                 el["src"] = path.replace(" ", "%20")
                 if "_inline" in parent_tags:
                     parent_tags.remove("_inline")  # Always show images.
-                return super().convert_img(el, text, parent_tags)                            
+                return super().convert_img(el, text, parent_tags)
             # Handle external images (new functionality)
             src = el.get("src")
             if src and (src.startswith("http://") or src.startswith("https://")):
                 alt_text = el.get("alt") or text or "External Image"
-                
+
                 if settings.export.download_external_images:
                     # Download the image locally
                     local_path = self._download_external_image(src)
                     if local_path:
                         # Use the local path
-                        href_path = self._get_path_for_href(local_path, settings.export.external_image_href)
+                        href_path = self._get_path_for_href(
+                            local_path, settings.export.external_image_href
+                        )
                         el["src"] = href_path.replace(" ", "%20")
                         if "_inline" in parent_tags:
                             parent_tags.remove("_inline")  # Always show images.
@@ -1029,7 +1062,6 @@ class Page(Document):
             # Fallback for any other case (no src or non-HTTP URL)
             href = el.get("href") or el.get("src") or text
             return f"[{text}]({href})"
-
 
         def convert_drawio(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:
             if match := re.search(r"\|diagramName=(.+?)\|", str(el)):
@@ -1103,6 +1135,20 @@ def export_pages(page_ids: list[int]) -> None:
         page_ids: List of pages to export.
         output_path: The output path.
     """
-    for page_id in (pbar := tqdm(page_ids, smoothing=0.05)):
+    # Get rate limiting settings
+    request_delay = getattr(settings.export, 'request_delay', 0.5)  # Default 0.5 second delay
+    batch_size = getattr(settings.export, 'rate_limit_batch_size', 50)  # Pause every 50 requests
+    batch_pause = getattr(settings.export, 'rate_limit_batch_pause', 5.0)  # 5 second pause between batches
+    
+    for idx, page_id in enumerate(pbar := tqdm(page_ids, smoothing=0.05)):
         pbar.set_postfix_str(f"Exporting page {page_id}")
         export_page(page_id)
+        
+        # Add delay between requests to avoid rate limiting
+        if request_delay > 0 and idx < len(page_ids) - 1:
+            time.sleep(request_delay)
+        
+        # Add longer pause every batch_size requests
+        if batch_size > 0 and (idx + 1) % batch_size == 0 and idx < len(page_ids) - 1:
+            pbar.set_postfix_str(f"Rate limit pause ({batch_pause}s)...")
+            time.sleep(batch_pause)
