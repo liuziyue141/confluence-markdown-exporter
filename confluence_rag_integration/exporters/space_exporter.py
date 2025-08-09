@@ -51,8 +51,22 @@ class SpaceExporter:
                     batch_size = getattr(settings.export, 'rate_limit_batch_size', 50)
                     batch_pause = getattr(settings.export, 'rate_limit_batch_pause', 5.0)
                     
-                    space = Space.from_key(space_key)
-                    page_list = space.pages
+                    # Try to get all pages using the more reliable method
+                    try:
+                        # Use get_all_pages_from_space which handles pagination properly
+                        all_pages = confluence.get_all_pages_from_space(
+                            space_key, 
+                            start=0, 
+                            limit=100,
+                            expand='ancestors'
+                        )
+                        page_list = [int(page['id']) for page in all_pages]
+                        print(f"Retrieved {len(page_list)} pages using get_all_pages_from_space")
+                    except Exception as e:
+                        print(f"Failed to use get_all_pages_from_space, falling back to Space.pages: {e}")
+                        # Fallback to original method (which now has better error handling)
+                        space = Space.from_key(space_key)
+                        page_list = space.pages
                     
                     # Export all pages in space with rate limiting and progress bar
                     print(f"Exporting space {space_key} ({len(page_list)} pages)...")

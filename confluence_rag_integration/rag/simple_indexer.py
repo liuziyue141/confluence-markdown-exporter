@@ -88,27 +88,50 @@ class SimpleIndexer(BaseIndexer):
                     doc.metadata.get("file_path", f"{export_path}/{doc_metadata['title']}.md"),
                 )
 
+                # Prepend title to chunk content for better retrieval
+                enriched_content = f"Document: {doc_metadata['title']}\n\n{chunk.page_content}"
+
                 # Create final chunk with merged metadata
                 enriched_chunk = Document(
-                    page_content=chunk.page_content,
+                    page_content=enriched_content,
                     metadata=merged_metadata
                 )
 
                 all_enriched_chunks.append(enriched_chunk)
 
         # Index documents with automatic duplicate detection
-        result = index(
-            all_enriched_chunks,
-            self.record_manager,
-            self.vector_store,
-            cleanup="incremental",
-            source_id_key="source",
-        )
+        # Process in batches to avoid overwhelming the system
+        batch_size = 100
+        total_added = 0
+        total_updated = 0
+        total_skipped = 0
+        total_deleted = 0
+        
+        for i in range(0, len(all_enriched_chunks), batch_size):
+            batch = all_enriched_chunks[i:i+batch_size]
+            
+            try:
+                result = index(
+                    batch,
+                    self.record_manager,
+                    self.vector_store,
+                    cleanup="incremental",
+                    source_id_key="source"
+                )
+                
+                total_added += result.get('num_added', 0)
+                total_updated += result.get('num_updated', 0)
+                total_skipped += result.get('num_skipped', 0)
+                total_deleted += result.get('num_deleted', 0)
+                
+            except Exception as e:
+                print(f"Warning: Error in batch {i//batch_size + 1}: {e}")
+                continue
 
         return {
             "status": "success",
             "documents_indexed": len(docs),
-            "chunks_created": result.get("num_added", 0) + result.get("num_updated", 0),
+            "chunks_created": total_added + total_updated,
         }
 
     def clear_index(self) -> None:
@@ -116,6 +139,6 @@ class SimpleIndexer(BaseIndexer):
         # Delete all documents
         index([], self.record_manager, self.vector_store, cleanup="full", source_id_key="source")
 
-    def get_retriever(self):
+    def get_retriever(self, kwargs: dict = {}):
         """Get the vector store as retriever."""
-        return self.vector_store.as_retriever()
+        return self.vector_store.as_retriever(search_kwargs=kwargs)

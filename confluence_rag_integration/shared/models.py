@@ -21,6 +21,10 @@ class CustomerConfig:
     collection_name: str = None  # Auto-generated if None
     db_connection: str = "postgresql+psycopg://user:pass@localhost:5432/db"
     indexer_type: str = "simple"  # "simple" or "parent_document"
+    # Reranking settings
+    enable_reranking: bool = True
+    rerank_model: str = "rerank-v3.5"
+    rerank_top_k_multiplier: int = 2
     
     def __post_init__(self):
         if not self.collection_name:
@@ -65,6 +69,8 @@ class QueryResult:
     """Result from query operation"""
     customer_id: str
     question: str
-    documents: List[Dict[str, Any]]  # [{content, metadata, source}, ...]
+    documents: List[Dict[str, Any]]  # [{content, metadata, source, relevance_score}, ...]
     status: str  # success, error
     error: Optional[str] = None
+    reranking_applied: bool = True
+    relevance_scores: Optional[List[float]] = None

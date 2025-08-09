@@ -339,35 +339,92 @@ class Page(Document):
 
         ids_exp = jmespath.compile("results[].content.id.to_number(@)")
 
-        try:
-            while start < total_size:
-                response = cast(
-                    JsonResponse,
-                    confluence.cql(cql_query, limit=paging_limit, start=start),
-                )
+        import time
+        from requests.exceptions import HTTPError, Timeout, ConnectionError
+        
+        max_retries = 3
+        retry_delay = 2.0
+        
+        while start < total_size:
+            retries = 0
+            while retries < max_retries:
+                try:
+                    response = cast(
+                        JsonResponse,
+                        confluence.cql(cql_query, limit=paging_limit, start=start),
+                    )
 
-                page_ids.extend(ids_exp.search(response))
+                    page_ids.extend(ids_exp.search(response))
 
-                size = response.get("size", 0)
-                total_size = response.get("totalSize", 0)
+                    size = response.get("size", 0)
+                    total_size = response.get("totalSize", 0)
 
-                if size == 0:
-                    break
+                    if size == 0:
+                        break
 
-                start += size
-
-        except HTTPError as e:
-            if e.response.status_code == 404:  # noqa: PLR2004
-                print(
-                    f"WARNING: Content with ID {self.id} not found (404) when fetching descendants."
-                )
-                return []
-            return []
-        except Exception as e:  # noqa: BLE001
-            print(
-                f"ERROR: Unexpected error when fetching descendants for content ID {self.id}: {e!s}"
-            )
-            return []
+                    start += size
+                    
+                    # Add delay between pagination requests to avoid rate limits
+                    if start < total_size:
+                        time.sleep(0.5)
+                    
+                    break  # Success, exit retry loop
+                    
+                except HTTPError as e:
+                    if e.response.status_code == 404:  # noqa: PLR2004
+                        print(
+                            f"WARNING: Content with ID {self.id} not found (404) when fetching descendants."
+                        )
+                        return page_ids  # Return what we have so far
+                    elif e.response.status_code == 429:  # Rate limit
+                        retries += 1
+                        if retries < max_retries:
+                            wait_time = retry_delay * (2 ** (retries - 1))  # Exponential backoff
+                            print(
+                                f"Rate limit hit fetching descendants (start={start}). "
+                                f"Retry {retries}/{max_retries} after {wait_time}s..."
+                            )
+                            time.sleep(wait_time)
+                        else:
+                            print(
+                                f"ERROR: Max retries exceeded for descendants of {self.id} at start={start}. "
+                                f"Returning {len(page_ids)} pages fetched so far."
+                            )
+                            return page_ids  # Return partial results
+                    else:
+                        print(
+                            f"ERROR: HTTP {e.response.status_code} when fetching descendants "
+                            f"for content ID {self.id} at start={start}: {e!s}"
+                        )
+                        retries += 1
+                        if retries < max_retries:
+                            time.sleep(retry_delay)
+                        else:
+                            return page_ids  # Return what we have
+                            
+                except (Timeout, ConnectionError) as e:
+                    retries += 1
+                    if retries < max_retries:
+                        print(
+                            f"Connection error fetching descendants (start={start}). "
+                            f"Retry {retries}/{max_retries}..."
+                        )
+                        time.sleep(retry_delay * retries)
+                    else:
+                        print(
+                            f"ERROR: Connection failed for descendants of {self.id}: {e!s}"
+                        )
+                        return page_ids
+                        
+                except Exception as e:  # noqa: BLE001
+                    print(
+                        f"ERROR: Unexpected error when fetching descendants for content ID {self.id} "
+                        f"at start={start}: {e!s}"
+                    )
+                    return page_ids  # Return what we have so far
+            
+            if retries >= max_retries:
+                break  # Exit main loop if we exhausted retries
 
         return page_ids
 

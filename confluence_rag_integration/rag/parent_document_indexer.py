@@ -57,6 +57,7 @@ class ParentDocumentIndexer(BaseIndexer):
             docstore=self.docstore,
             child_splitter=self.child_splitter,
             parent_splitter=self.parent_splitter,
+            search_kwargs={"k": 5}  # Default to 5 results
         )
 
     def build_index(self, export_path: Path) -> Dict[str, Any]:
@@ -81,6 +82,10 @@ class ParentDocumentIndexer(BaseIndexer):
             doc_metadata = extract_metadata_from_content(doc.page_content)
             doc.metadata.update(doc_metadata)
 
+            # Prepend title to document content for better retrieval
+            enriched_content = f"Document: {doc_metadata['title']}\n\n{doc.page_content}"
+            doc.page_content = enriched_content
+
             # Ensure source field for change tracking
             doc.metadata["source"] = doc.metadata.get(
                 "source", doc.metadata.get("file_path", "unknown")
@@ -101,13 +106,33 @@ class ParentDocumentIndexer(BaseIndexer):
                 child_docs.extend(children)
 
         # Apply indexing API for change tracking
-        result = index(
-            child_docs,
-            self.record_manager,
-            self.vector_store,
-            cleanup="incremental",
-            source_id_key="source",
-        )
+        # Process in batches to avoid overwhelming the system
+        batch_size = 100
+        total_added = 0
+        total_updated = 0
+        total_skipped = 0
+        total_deleted = 0
+        
+        for i in range(0, len(child_docs), batch_size):
+            batch = child_docs[i:i+batch_size]
+            
+            try:
+                result = index(
+                    batch,
+                    self.record_manager,
+                    self.vector_store,
+                    cleanup="incremental",
+                    source_id_key="source"
+                )
+                
+                total_added += result.get('num_added', 0)
+                total_updated += result.get('num_updated', 0)
+                total_skipped += result.get('num_skipped', 0)
+                total_deleted += result.get('num_deleted', 0)
+                
+            except Exception as e:
+                print(f"Warning: Error in batch {i//batch_size + 1}: {e}")
+                continue
 
         return {
             "status": "success",
@@ -133,6 +158,9 @@ class ParentDocumentIndexer(BaseIndexer):
             )
             session.commit()
 
-    def get_retriever(self):
+    def get_retriever(self, kwargs: dict = {}):
         """Get the parent document retriever."""
+        # Update search_kwargs if provided
+        if kwargs:
+            self.retriever.search_kwargs.update(kwargs)
         return self.retriever

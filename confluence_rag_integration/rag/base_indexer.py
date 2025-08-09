@@ -23,6 +23,10 @@ class BaseIndexer(ABC):
         pass
     
     @abstractmethod
-    def get_retriever(self):
-        """Get the retriever for query operations."""
+    def get_retriever(self, kwargs: dict | None = None):
+        """Get the retriever for query operations.
+        
+        Args:
+            kwargs: Additional parameters for the retriever (e.g., {"k": 10} for top-k results)
+        """
         pass
