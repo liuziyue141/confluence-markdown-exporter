@@ -13,27 +13,144 @@ import logging
 from ..customers.customer_manager import CustomerManager
 from ..rag.query_manager import QueryManager
 from dotenv import load_dotenv
+from typing import Union
+from pathlib import Path
+import re
+from typing import Tuple
 
 load_dotenv()
 
 logger = logging.getLogger(__name__)
 
 
+
+@tool
+def get_full_document(
+    document_title: Annotated[str, "The exact document title from search results - pay attention to titles as they indicate specific problems the article solves"],
+    config: RunnableConfig,
+) -> str:
+    """
+    Retrieve the complete content of a specific document.
+    Use this when:
+    - The article title strongly matches the user's issue but you need more context
+    - The article title is referenced in the search results, and you need more context
+    - You need complete procedures or configuration details  
+    - The user is confused about a previous solution
+    - Following up on a solution that needs more context
+    The document_title should match exactly what was shown in the search results.
+    """
+    try:
+        configurable = config.get("configurable", {})
+        customer_id = configurable.get("customer_id", "acme_corp")
+        
+        # Get customer's export directory
+        # customer_manager = CustomerManager()
+        # customer = customer_manager.get_customer(customer_id)
+        # if not customer:
+        #     return f"Customer {customer_id} not found"
+        
+        # temporary solution for testing
+        root_directory = "/Users/lindalee/desktop/confluence-markdown-exporter/data/customers/acme_corp/exports"
+        
+        # Try to find the file
+        result = find_kb_file_simple(document_title, root_directory)
+        
+        if result:
+            file_path, content = result
+            
+            return f"""### Complete Document Retrieved
+**Title:** {document_title}
+**File Path:** {file_path}
+**Full Content ({len(content)} characters):**
+
+{content}"""
+        else:
+            return f"Could not retrieve full document for: '{document_title}'. Please use the exact title from the search results."
+            
+    except Exception as e:
+        logger.error(f"Error in get_full_document: {str(e)}")
+        return f"Error retrieving full document: {str(e)}"
+
+
+def get_file_content(source: Union[str, Path], encoding: str = 'utf-8') -> Optional[str]:
+    """Read and return the content of a file given its path."""
+    try:
+        file_path = Path(source)
+        
+        if not file_path.exists():
+            logger.debug(f"File not found: {source}")
+            return None
+        
+        if not file_path.is_file():
+            logger.debug(f"Path is not a file: {source}")
+            return None
+        
+        with open(file_path, 'r', encoding=encoding) as f:
+            content = f.read()
+        
+        logger.debug(f"Successfully read file: {file_path.name} ({len(content):,} characters)")
+        return content
+    except Exception as e:
+        logger.error(f"Error reading file {source}: {e}")
+        return None
+
+
+def find_kb_file_simple(search_term: str, root_directory: Union[str, Path]) -> Optional[Tuple[str, str]]:
+    """Find a KB file by search term in the given directory."""
+    root_path = Path(root_directory)
+    
+    if not root_path.exists() or not root_path.is_dir():
+        logger.error(f"Invalid directory: {root_directory}")
+        return None
+    
+    # Clean the search term
+    clean_term = search_term.strip()
+    
+    # Try exact match first
+    matching_files = list(root_path.rglob(f'*{clean_term}*.md'))
+    
+    # If no exact match, try with simplified term
+    if not matching_files:
+        # Remove file extensions if present
+        simplified_term = re.sub(r'\.md$', '', clean_term, flags=re.IGNORECASE)
+        # Remove special characters but keep spaces
+        simplified_term = re.sub(r'[^\w\s-]', '', simplified_term).strip()
+        if simplified_term and simplified_term != clean_term:
+            matching_files = list(root_path.rglob(f'*{simplified_term}*.md'))
+    
+    if matching_files:
+        # Return the first match
+        file_path = matching_files[0]
+        content = get_file_content(file_path)
+        if content:
+            logger.info(f"Found document: {file_path}")
+            return (str(file_path), content)
+    
+    logger.warning(f"No document found for search term: {search_term}")
+    return None
+
+
+
 @tool
 def retrieve_knowledge(
     query: Annotated[str, "The search query or question to find relevant documents"],
     config: RunnableConfig,
+    search_mode: Annotated[str, "Search mode: 'initial' for first exploration (returns more results with snippets), 'focused' for specific searches"] = "initial",
 ) -> str:
     """
-    This tool can search and retrieve relevant documentation from customer's Confluence knowledge base.
-    Use this when you need to find information about products, procedures,
-    troubleshooting steps, or any documented knowledge to help answer questions.
+    Search and retrieve relevant documentation from Confluence knowledge base.
+    Use 'initial' mode for first search, 'focused' for follow-up specific searches.
     """
+
     try:
         # Extract configuration
         configurable = config.get("configurable", {})
         customer_id = configurable.get("customer_id", "acme_corp")
-        top_k = configurable.get("top_k", 3)
+        if search_mode == "initial":
+            top_k = 5  # Get more results for initial exploration
+        else:
+            top_k = 3
+
 
         # Initialize managers
         customer_manager = CustomerManager()
@@ -52,9 +169,8 @@ def retrieve_knowledge(
         formatted_results = []
         for i, doc in enumerate(result.documents, 1):
             # Extract all available metadata
-            source = doc.get("source", "Unknown")
-            url = doc.get("url")
             title = doc.get("title", "Untitled")
+            url = doc.get("url")
             breadcrumb = doc.get("breadcrumb")
             tags = doc.get("tags", [])
             content = doc.get("content", "")
@@ -74,9 +190,6 @@ def retrieve_knowledge(
             if tags:
                 tags_str = ", ".join(tags) if isinstance(tags, list) else str(tags)
                 result_parts.append(f"**Tags:** {tags_str}")
-
-            # Add file source
-            result_parts.append(f"**File:** {source}")
 
             # Add content
             result_parts.append(f"\n**Content:**\n{content}")
@@ -130,7 +243,9 @@ class ConfluenceRAGAgent:
 
         # Compile with checkpointer
         return builder.compile(checkpointer=self.checkpointer)
+    from langsmith import traceable
 
+    @traceable
     def _agent_node(self, state: MessagesState, config: RunnableConfig) -> dict:  # noqa: ARG002
         """Agent node that decides whether to search or respond."""
         messages = state["messages"]
@@ -221,6 +336,8 @@ class ConfluenceRAGAgent:
             if tool_name == "retrieve_knowledge":
                 # Execute the tool with config
                 tool_result = retrieve_knowledge.invoke(tool_args, config)
+            elif tool_name == "get_full_document":
+                tool_result = get_full_document.invoke(tool_args, config)
             else:
                 tool_result = f"Error: Unknown tool {tool_name}"
 
