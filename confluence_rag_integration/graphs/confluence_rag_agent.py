@@ -244,7 +244,6 @@ class ConfluenceRAGAgent:
      * You need complete procedures or configuration details
      * The user is confused about a previous solution
      * Following up on a solution that needs more context
-   - Articles are divided by headers (not "..." truncation) - use this structure to navigate
 
 4. **Intelligent Response Strategy**:
    - Synthesize information from multiple sources when needed
@@ -467,7 +466,7 @@ class ConfluenceRAGAgent:
 
 
 def create_agent(
-    model_name: str = "gemini-1.5-flash", temperature: float = 0, use_persistent_memory: bool = True
+    model_name: str = "gemini-2.5-flash", temperature: float = 0, use_persistent_memory: bool = True
 ) -> ConfluenceRAGAgent:
     """
     Factory function to create a RAG agent.
