@@ -47,14 +47,13 @@ class QueryManager:
             # Determine how many documents to retrieve initially
             initial_k = top_k
             if config.enable_reranking:
-                initial_k = top_k * config.rerank_top_k_multiplier
+                initial_k = max(top_k * config.rerank_top_k_multiplier, 50)
             
             # Use retriever to get relevant documents
             retriever = indexer.get_retriever({"k": initial_k})
             docs = retriever.invoke(question)
+            logger.info(f"question: {question}")
             logger.info(f"Retrieved {len(docs)} documents")
-            for doc in docs:
-                logger.info(f"Document: {doc.metadata}")
             # Apply reranking if enabled and documents were retrieved
             reranking_applied = False
             relevance_scores = None
@@ -75,9 +74,10 @@ class QueryManager:
                     "content": doc.page_content,
                     "metadata": doc.metadata,
                     "source": doc.metadata.get("source", "unknown")
-                }
-                # Add relevance score if available
+                }                # Add relevance score if available
                 if relevance_scores and i < len(relevance_scores):
+                    if relevance_scores[i] <= 0.2:
+                        break
                     doc_dict["relevance_score"] = relevance_scores[i]
                     logger.info(f"meta: {doc.metadata}")
                     logger.info(f"relevance_score: {relevance_scores[i]}")
@@ -88,7 +88,7 @@ class QueryManager:
                 documents=documents,
                 status="success",
                 reranking_applied=reranking_applied,
-                relevance_scores=relevance_scores[:top_k] if relevance_scores else None
+                relevance_scores=relevance_scores[:len(documents)] if relevance_scores else None
             )
             
         except Exception as e:

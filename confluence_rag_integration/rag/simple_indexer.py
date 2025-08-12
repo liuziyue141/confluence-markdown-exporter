@@ -12,7 +12,7 @@ from langchain.indexes import SQLRecordManager, index
 
 from .base_indexer import BaseIndexer
 from ..shared.models import CustomerConfig
-from ..shared.utils import extract_metadata_from_content
+from ..shared.utils import extract_metadata_from_content, has_meaningful_content
 
 
 class SimpleIndexer(BaseIndexer):
@@ -34,12 +34,146 @@ class SimpleIndexer(BaseIndexer):
         self.record_manager.create_schema()
 
         # Markdown header splitter configuration
-        self.headers_to_split_on = [("##", "Header 2")]
+        self.headers_to_split_on = [("#", "Header 1"), ("##", "Header 2"), ("###", "Header 3")]
         self.markdown_splitter = MarkdownHeaderTextSplitter(
             headers_to_split_on=self.headers_to_split_on, strip_headers=False
         )
+    from typing import List
+    def chunking(self, docs: List[Document], 
+        include_context_in_text: bool = True,
+        min_content_length: int = 50,
+        content_density_threshold: float = 0.3,
+        verbose: bool = False)  -> List[Document]:
+        """
+        Enhanced chunking that prevents empty header chunks and filters metadata blocks.
+        
+        Args:
+            docs: List of documents to chunk
+            include_context_in_text: Whether to prepend hierarchical context to chunk text
+            min_content_length: Minimum meaningful content required in a chunk
+            content_density_threshold: Minimum ratio of content to total text
+            verbose: Print debug information about chunking decisions
+        
+        Returns:
+            List of chunked documents with enriched metadata
+        """
 
-    def build_index(self, export_path: Path) -> Dict[str, Any]:
+        # Initialize the markdown splitter
+        markdown_splitter = self.markdown_splitter
+
+        all_chunks = []
+
+        for doc in docs:
+            # Extract article-level metadata from potential metadata blocks
+            doc_metadata = extract_metadata_from_content(doc.page_content)
+            cleaned_content = doc_metadata.pop('processed_content')
+
+            # Split by headers first
+            header_chunks = markdown_splitter.split_text(cleaned_content)
+
+            # Process chunks and merge empty headers if needed
+            processed_chunks = []
+            i = 0
+            while i < len(header_chunks):
+                chunk = header_chunks[i]
+
+                # Build hierarchical context
+                hierarchy = []
+                for header_level in ["Header 1", "Header 2", "Header 3", "Header 4"]:
+                    if header_level in chunk.metadata:
+                        hierarchy.append(chunk.metadata[header_level])
+
+                context_path = " > ".join(hierarchy) if hierarchy else doc_metadata.get("title", "Document")
+
+                # Check if this chunk has meaningful content
+                chunk_has_content = has_meaningful_content(
+                    chunk.page_content,
+                    min_content_length,
+                    content_density_threshold
+                )
+
+
+                if verbose:
+                    if not chunk_has_content:
+                        print(f"Empty chunk detected: {context_path[:50]}...")
+
+                # Skip chunks without meaningful content that couldn't be merged
+                if not chunk_has_content:
+                    if verbose:
+                        print(f"Skipping empty chunk: {context_path[:50]}...")
+                    i += 1
+                    continue
+                # Add context to text if requested
+                if include_context_in_text and context_path:
+                    chunk.page_content = f"[{context_path}]\n{chunk.page_content}"
+
+                # Enrich metadata for regular chunks
+                chunk.metadata.update({
+                    'source': doc.metadata.get('source', ''),
+                    'title': doc_metadata['title'],
+                    'breadcrumb': doc_metadata['breadcrumb'],
+                    'url': doc_metadata['url'],
+                    'tags': doc_metadata['tags'],
+                    'hierarchy_path': context_path,
+                    'properties': doc_metadata['properties']
+                })
+
+                processed_chunks.append(chunk)
+
+                i += 1
+
+            all_chunks.extend(processed_chunks)
+
+        if verbose:
+            print(f"\nChunking complete: {len(all_chunks)} final chunks from {len(docs)} documents")
+
+        return all_chunks
+        
+    from typing import List, Dict, Any
+
+    def index_with_retry(self, batch: List, max_retries: int = 3, initial_delay: float = 1.0) -> Dict[str, int]:
+        """
+        Index a batch with retry logic and exponential backoff.
+        
+        Args:
+            batch: The batch of chunks to index
+            record_manager: The record manager instance
+            vector_store: The vector store instance
+            max_retries: Maximum number of retry attempts
+            initial_delay: Initial delay in seconds before first retry
+        
+        Returns:
+            Dictionary with indexing results
+        """
+        delay = initial_delay
+        last_exception = None
+        
+        for attempt in range(max_retries + 1):
+            try:
+                result = index(
+                    batch,
+                    self.record_manager,
+                    self.vector_store,
+                    cleanup="incremental",
+                    source_id_key="source"
+                )
+                return result
+            except Exception as e:
+                import time
+                last_exception = e
+                
+                if attempt < max_retries:
+                    print(f"  ⚠️ Indexing failed (attempt {attempt + 1}/{max_retries + 1}): {str(e)}")
+                    print(f"  ⏳ Retrying in {delay:.1f} seconds...")
+                    
+                    time.sleep(delay)
+                    delay *= 2  # Exponential backoff
+                else:
+                    print(f"  ❌ Failed after {max_retries + 1} attempts: {str(e)}")
+                    raise last_exception
+
+
+    def build_index(self, export_path: Path, min_content_length: int = 50, content_density_threshold: float = 0.3, verbose: bool = False) -> Dict[str, Any]:
         """Build index from exported markdown files."""
         # Load documents
         loader = DirectoryLoader(
@@ -57,76 +191,33 @@ class SimpleIndexer(BaseIndexer):
                 "chunks_created": 0,
             }
 
-        all_enriched_chunks = []
+        chunks = self.chunking(docs,
+        include_context_in_text=True,
+        min_content_length=min_content_length,
+        content_density_threshold=content_density_threshold,
+        verbose=verbose)
 
-        for doc in docs:
-            # Extract metadata from the full document content
-            doc_metadata = extract_metadata_from_content(doc.page_content)
-
-            # Split the document into chunks with header metadata
-            # split_text returns Document objects with header metadata
-            chunks = self.markdown_splitter.split_text(doc.page_content)
-
-            # Process each chunk to merge metadata
-            for chunk in chunks:
-                # Ensure chunk is a Document object
-                if not isinstance(chunk, Document):
-                    # This shouldn't happen with split_text, but handle it defensively
-                    chunk = Document(
-                        page_content=str(chunk),
-                        metadata={}
-                    )
-
-                # Merge document-level metadata with header metadata from splitter
-                # Header metadata (from splitter) takes precedence for headers
-                # Document metadata provides title, breadcrumb, url, tags
-                merged_metadata = {**doc_metadata, **chunk.metadata}
-
-                # Add source field for record manager tracking
-                merged_metadata["source"] = doc.metadata.get(
-                    "source",
-                    doc.metadata.get("file_path", f"{export_path}/{doc_metadata['title']}.md"),
-                )
-
-                # Prepend title to chunk content for better retrieval
-                enriched_content = f"Document: {doc_metadata['title']}\n\n{chunk.page_content}"
-
-                # Create final chunk with merged metadata
-                enriched_chunk = Document(
-                    page_content=enriched_content,
-                    metadata=merged_metadata
-                )
-
-                all_enriched_chunks.append(enriched_chunk)
-
-        # Index documents with automatic duplicate detection
-        # Process in batches to avoid overwhelming the system
-        batch_size = 100
+# Display sample chunk
+        batch_size = 500
         total_added = 0
         total_updated = 0
         total_skipped = 0
         total_deleted = 0
-        
-        for i in range(0, len(all_enriched_chunks), batch_size):
-            batch = all_enriched_chunks[i:i+batch_size]
-            
-            try:
-                result = index(
-                    batch,
-                    self.record_manager,
-                    self.vector_store,
-                    cleanup="incremental",
-                    source_id_key="source"
-                )
-                
-                total_added += result.get('num_added', 0)
-                total_updated += result.get('num_updated', 0)
-                total_skipped += result.get('num_skipped', 0)
-                total_deleted += result.get('num_deleted', 0)
-                
-            except Exception as e:
-                print(f"Warning: Error in batch {i//batch_size + 1}: {e}")
-                continue
+        for i in range(0, len(chunks), batch_size):
+            print(f"Indexing batch {i//batch_size + 1} of {len(chunks)//batch_size}")
+            batch = chunks[i:i+batch_size]
+            result = self.index_with_retry(batch)
+            total_added += result.get('num_added', 0)
+            total_updated += result.get('num_updated', 0)
+            total_skipped += result.get('num_skipped', 0)
+            total_deleted += result.get('num_deleted', 0)
+
+        print(f"✅ Indexing complete:")
+        print(f"  Added: {total_added}")
+        print(f"  Updated: {total_updated}")
+        print(f"  Skipped: {total_skipped}")
+        print(f"  Deleted: {total_deleted}")
+
 
         return {
             "status": "success",

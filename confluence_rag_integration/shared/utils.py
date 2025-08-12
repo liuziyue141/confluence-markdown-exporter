@@ -304,71 +304,218 @@ def get_environment_variable(
 
     return value
 
+import re
 
 def extract_metadata_from_content(content: str) -> dict:
     """
     Parses the full text of a markdown file to extract metadata from YAML front matter,
-    breadcrumbs, and title.
+    breadcrumbs, title, and article information blocks. Processes content only after 
+    the main title (# ...) and removes metadata blocks.
 
     Args:
         content: The raw string content of a .md file.
 
     Returns:
-        A dictionary containing 'title', 'breadcrumb', 'url', and 'tags'.
+        A dictionary containing 'title', 'breadcrumb', 'url', 'tags', 'properties', 
+        and 'processed_content'.
     """
     lines = content.split("\n")
 
     # Default values
-    metadata = {"title": "Untitled", "breadcrumb": "Uncategorized", "url": None, "tags": []}
+    metadata = {
+        "title": "Untitled", 
+        "breadcrumb": "Uncategorized", 
+        "url": None, 
+        "tags": [],
+        "properties": {},  # Generic properties dictionary for any key-value pairs
+        "processed_content": ""
+    }
 
+    # Track where content processing should start
+    content_start_index = 0
+    title_found = False
+
+    # Find the first non-empty line that might be the start of YAML front matter
+    yaml_start = -1
+    for i, line in enumerate(lines):
+        if line.strip() == "---":
+            yaml_start = i
+            break
+    
     # Check for YAML front matter
-    if lines and lines[0].strip() == "---":
-        try:
-            # Find the closing --- for front matter
-            end_index = -1
-            for i, line in enumerate(lines[1:], 1):
-                if line.strip() == "---":
-                    end_index = i
-                    break
-
-            if end_index > 0:
-                # Extract YAML content
-                yaml_content = "\n".join(lines[1:end_index])
-                front_matter = yaml.safe_load(yaml_content)
-
-                if front_matter:
-                    # Extract URL
-                    if "url" in front_matter:
-                        metadata["url"] = front_matter["url"]
-
-                    # Extract tags (labels)
-                    if "tags" in front_matter:
-                        tags = front_matter["tags"]
-                        if isinstance(tags, list):
-                            # Clean up tags - remove None values and ensure strings
-                            metadata["tags"] = [str(tag) for tag in tags if tag is not None]
-                        elif isinstance(tags, str):
-                            metadata["tags"] = [tags]
-
-                # Start looking for breadcrumb and title after front matter
-                lines = lines[end_index + 1 :]
-        except Exception:
-            # If YAML parsing fails, continue with regular parsing
-            pass
-
-    # Find Breadcrumb (usually the first line with '>')
-    for line in lines:
-        if ">" in line:
-            # Extracts text from within markdown links like [Text](link)
-            parts = re.findall(r"\[(.*?)\]", line)
-            if parts:
-                metadata["breadcrumb"] = " > ".join(parts)
+    if yaml_start >= 0:
+        # Find the closing --- for front matter
+        end_index = -1
+        for i, line in enumerate(lines[yaml_start + 1:], yaml_start + 1):
+            if line.strip() == "---":
+                end_index = i
                 break
 
-    # Find Title (the first line starting with '# ')
-    for line in lines:
+        if end_index > yaml_start:
+            # Extract content between --- markers
+            for line in lines[yaml_start + 1:end_index]:
+                line_stripped = line.strip()
+                
+                # Look for url: pattern
+                if line_stripped.startswith("url:"):
+                    # Extract URL after "url:"
+                    url = line_stripped[4:].strip()
+                    metadata["url"] = url
+                # Look for tags: pattern (if present)
+                elif line_stripped.startswith("tags:"):
+                    # Simple extraction for tags on same line
+                    tags_str = line_stripped[5:].strip()
+                    if tags_str:
+                        metadata["tags"] = [tag.strip() for tag in tags_str.split(",")]
+
+    # Find Title and mark where content should start
+    for i, line in enumerate(lines):
         if line.startswith("# "):
             metadata["title"] = line.strip("# ").strip()
+            content_start_index = i
+            title_found = True
             break
 
+    # Find Breadcrumb (usually the first line with '>' before the title)
+    if title_found:
+        # Only look for breadcrumb before the title
+        for line in lines[:content_start_index]:
+            if ">" in line and "[" in line and "]" in line:
+                # Extracts text from within markdown links like [Text](link)
+                parts = re.findall(r"\[(.*?)\]", line)
+                if parts:
+                    metadata["breadcrumb"] = " > ".join(parts)
+                    break
+
+    # Process content starting from the title line
+    if title_found:
+        processed_lines = []
+        i = content_start_index
+        
+        while i < len(lines):
+            line = lines[i]
+            
+            # Check if this is the start of an IMPORTANT block
+            # The pattern in your example is: > [!IMPORTANT]
+            if "> [!IMPORTANT]" in line:
+                # Skip this line and start extracting properties
+                j = i + 1
+                block_properties = {}
+                
+                # Process lines in this block (they all start with >)
+                while j < len(lines):
+                    current_line = lines[j]
+                    
+                    # If line doesn't start with >, we're done with the block
+                    if not current_line.startswith(">"):
+                        break
+                    
+                    # Remove the leading > and spaces
+                    cleaned_line = current_line[1:].strip()
+                    
+                    # Skip lines that are just formatting (like **Article Information:**)
+                    if cleaned_line.startswith("**") and cleaned_line.endswith("**"):
+                        j += 1
+                        continue
+                    
+                    # Skip empty quoted lines
+                    if not cleaned_line:
+                        j += 1
+                        continue
+                    
+                    # Remove leading dash and spaces if present (for list items)
+                    if cleaned_line.startswith("- "):
+                        cleaned_line = cleaned_line[2:].strip()
+                    
+                    # Look for key-value pairs separated by ":"
+                    if ":" in cleaned_line:
+                        # Handle lines that might have markdown links
+                        if "[" in cleaned_line and "](" in cleaned_line:
+                            # Extract the key and the URL from markdown link
+                            key_part = cleaned_line.split(":")[0].strip()
+                            # Extract URL from markdown link
+                            url_match = re.search(r'\[([^\]]+)\]\(([^)]+)\)', cleaned_line)
+                            if url_match:
+                                value_part = url_match.group(2)  # Get the URL part
+                            else:
+                                value_part = cleaned_line.split(":", 1)[1].strip()
+                        else:
+                            # Simple key:value split
+                            parts = cleaned_line.split(":", 1)
+                            if len(parts) == 2:
+                                key_part = parts[0].strip()
+                                value_part = parts[1].strip()
+                            else:
+                                j += 1
+                                continue
+                        
+                        # Clean up the key (convert to snake_case)
+                        key = key_part.lower().replace(" ", "_").replace("-", "_")
+                        
+                        # Store in block_properties
+                        block_properties[key] = value_part
+                    
+                    j += 1
+                
+                # Add properties to metadata
+                
+                metadata["properties"].update(block_properties)
+                
+                # Skip this entire block in the processed content
+                i = j
+                continue
+            
+            # Add non-metadata lines to processed content
+            processed_lines.append(line)
+            i += 1
+        
+        # Join the processed lines
+        metadata["processed_content"] = "\n".join(processed_lines)
+        
+        # Clean up any remaining empty lines at the start
+        while metadata["processed_content"].startswith("\n"):
+            metadata["processed_content"] = metadata["processed_content"][1:]
+    else:
+        # If no title found, return the entire content
+        metadata["processed_content"] = content
+
     return metadata
+
+def has_meaningful_content(text: str, min_length: int = 50, content_density_threshold: float = 0.3) -> bool:
+    """
+    Check if a chunk has meaningful content beyond just headers and formatting.
+    
+    Args:
+        text: The text to validate
+        min_length: Minimum length of meaningful content required
+        content_density_threshold: Minimum ratio of content to total text
+
+    Returns:
+        True if the text contains meaningful content, False otherwise
+    """
+    # Remove markdown headers
+    cleaned = re.sub(r'^#+\s+.*$', '', text, flags=re.MULTILINE)
+
+    # Remove horizontal rules
+    cleaned = re.sub(r'^---+\s*$', '', cleaned, flags=re.MULTILINE)
+    cleaned = re.sub(r'^\*\*\*+\s*$', '', cleaned, flags=re.MULTILINE)
+
+    # Remove context brackets like [Path > To > Content]
+    cleaned = re.sub(r'^\[.*?\]\s*$', '', cleaned, flags=re.MULTILINE)
+
+    # Remove excessive whitespace
+    cleaned = re.sub(r'\n\s*\n', '\n', cleaned)
+    cleaned = cleaned.strip()
+
+    # Check if we have enough content
+    if len(cleaned) < min_length:
+        return False
+
+    # Calculate content density (ratio of actual content to original)
+    if len(text.strip()) > 0:
+        density = len(cleaned) / len(text.strip())
+        if density < content_density_threshold:
+            return False
+
+    return True
+
