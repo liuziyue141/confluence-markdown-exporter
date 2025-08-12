@@ -76,8 +76,8 @@ class QueryManager:
                     "source": doc.metadata.get("source", "unknown")
                 }                # Add relevance score if available
                 if relevance_scores and i < len(relevance_scores):
-                    if relevance_scores[i] <= 0.2:
-                        break
+                    # if relevance_scores[i] <= 0.2:
+                    #     break
                     doc_dict["relevance_score"] = relevance_scores[i]
                     logger.info(f"meta: {doc.metadata}")
                     logger.info(f"relevance_score: {relevance_scores[i]}")

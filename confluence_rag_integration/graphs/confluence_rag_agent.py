@@ -169,10 +169,11 @@ def retrieve_knowledge(
         formatted_results = []
         for i, doc in enumerate(result.documents, 1):
             # Extract all available metadata
-            title = doc.get("title", "Untitled")
-            url = doc.get("url")
-            breadcrumb = doc.get("breadcrumb")
-            tags = doc.get("tags", [])
+            doc_metadata = doc.get("metadata", {})
+            title = doc_metadata.get("title", "Untitled")
+            url = doc_metadata.get("url")
+            breadcrumb = doc_metadata.get("breadcrumb")
+            tags = doc_metadata.get("tags", [])
             content = doc.get("content", "")
 
             # Build formatted result with metadata
@@ -207,7 +208,7 @@ class ConfluenceRAGAgent:
     """RAG Agent with persistent memory for Confluence knowledge retrieval."""
 
     def __init__(
-        self, model_name: str = "gemini-1.5-flash", temperature: float = 0, checkpointer=None
+        self, model_name: str = "gemini-2.5-flash", temperature: float = 0, checkpointer=None
     ):
         """
         Initialize the RAG agent.
@@ -218,8 +219,45 @@ class ConfluenceRAGAgent:
             checkpointer: Checkpointer for persistent memory (defaults to MemorySaver)
         """
         self.llm = ChatGoogleGenerativeAI(model=model_name, temperature=temperature)
-        self.llm_with_tools = self.llm.bind_tools([retrieve_knowledge])
+        self.llm_with_tools = self.llm.bind_tools([retrieve_knowledge, get_full_document])
         self.checkpointer = checkpointer or MemorySaver()
+        self.system_prompt = """You are a technical support expert with access to a comprehensive Confluence knowledge base.
+
+**YOUR APPROACH:**
+
+**IMPORTANT: Always search the knowledge base FIRST before responding to the user's technical question. This ensures your responses are grounded in actual documentation and helps you ask better follow-up questions.**
+
+
+1. **Start with Search**:
+   - Begin with an 'initial' mode search using terms from the user's query
+   - This gives you 5 documents with content snippets to assess the situation
+
+2. **After Initial Search, Decide**:
+   - **If you can answer confidently** → Provide a clear, actionable solution
+   - **If you need clarification** → Ask specific questions to narrow down the issue
+   - **If you need more context** → Use get_full_document for promising articles
+
+3. **Using Full Documents**:
+   - Pay close attention to article titles - they usually indicate the specific problem the article solves
+   - Retrieve full documents when:
+     * The title strongly matches the user's issue but the snippet isn't enough
+     * You need complete procedures or configuration details
+     * The user is confused about a previous solution
+     * Following up on a solution that needs more context
+   - Articles are divided by headers (not "..." truncation) - use this structure to navigate
+
+4. **Intelligent Response Strategy**:
+   - Synthesize information from multiple sources when needed
+   - Provide step-by-step solutions when you have enough information
+   - Ask for clarification when it would significantly improve your ability to help
+   - Reference document titles and URLs so users can explore further
+
+5. **Follow-up Support**:
+   - When users are confused about a solution, retrieve the full document for complete context
+   - Use focused searches to address specific follow-up questions
+   - Be ready to provide alternative approaches if the first solution doesn't work
+
+**Key Principle**: Balance being helpful with being accurate. It's okay to ask for clarification when it would lead to a much better solution."""
         self.app = self._build_graph()
 
     def _build_graph(self):
@@ -252,62 +290,9 @@ class ConfluenceRAGAgent:
 
         logger.debug(f"Agent node - incoming messages count: {len(messages)}")
 
-        # System prompt for better agent behavior
-        system_prompt = """You are a technical support expert with access to a comprehensive Confluence knowledge base.
-
-**YOUR APPROACH:**
-
-1. **Start with Search**:
-   - Begin with an 'initial' mode search using terms from the user's query
-   - This gives you 5 documents with content snippets to assess the situation
-
-2. **After Initial Search, Decide**:
-   - **If you can answer confidently** → Provide a clear, actionable solution
-   - **If you need clarification** → Ask specific questions to narrow down the issue
-   - **If you need more context** → Use get_full_document for promising articles
-
-3. **Using Full Documents**:
-   - Pay close attention to article titles - they usually indicate the specific problem the article solves
-   - Retrieve full documents when:
-     * The title strongly matches the user's issue but the snippet isn't enough
-     * You need complete procedures or configuration details
-     * The user is confused about a previous solution
-     * Following up on a solution that needs more context
-   - Articles are divided by headers (not "..." truncation) - use this structure to navigate
-
-4. **Intelligent Response Strategy**:
-   - Synthesize information from multiple sources when needed
-   - Provide step-by-step solutions when you have enough information
-   - Ask for clarification when it would significantly improve your ability to help
-   - Reference document titles and URLs so users can explore further
-
-5. **Follow-up Support**:
-   - When users are confused about a solution, retrieve the full document for complete context
-   - Use focused searches to address specific follow-up questions
-   - Be ready to provide alternative approaches if the first solution doesn't work
-
-**Key Principle**: Balance being helpful with being accurate. It's okay to ask for clarification when it would lead to a much better solution."""
-
-
-        # system_prompt = """You are a helpful support agent with access to a Confluence knowledge base.
-        # Use the retrieve_knowledge tool to search for relevant documentation when answering questions.
-        # You can call the tool multiple times if needed to gather comprehensive information.
-        # Always search for information before providing an answer unless the question is clearly conversational.
-        # Be concise but thorough in your responses."""
-
-        # When providing answers based on retrieved documents:
-        # - Cite your sources by mentioning the document title and/or URL
-        # - If multiple documents contribute to your answer, reference them appropriately
-        # - Use the provided URLs to give users direct links to the full documentation
-
-        # Create proper message list with SystemMessage
-        messages_to_send = [SystemMessage(content=system_prompt)] + list(messages)
-
-        logger.debug(f"Invoking LLM with {len(messages_to_send)} messages")
-
         # Invoke LLM with tools
         try:
-            response = self.llm_with_tools.invoke(messages_to_send)
+            response = self.llm_with_tools.invoke(messages)
             logger.debug(
                 f"LLM response type: {type(response)}, has tool_calls: {hasattr(response, 'tool_calls')}"
             )
@@ -388,8 +373,19 @@ class ConfluenceRAGAgent:
             )
             logger.debug(f"User message: {message}")
 
+            # Check if this is a new conversation
+            state = self.app.get_state({"configurable": {"thread_id": thread_id}})
+            
+            # Prepare messages based on whether it's a new conversation
+            if not state.values:  # New conversation
+                messages = [SystemMessage(content=self.system_prompt), HumanMessage(content=message)]
+                logger.debug("New conversation - adding system prompt")
+            else:  # Existing conversation
+                messages = [HumanMessage(content=message)]
+                logger.debug("Existing conversation - no system prompt needed")
+
             # Invoke the agent
-            result = self.app.invoke({"messages": [HumanMessage(content=message)]}, config)
+            result = self.app.invoke({"messages": messages}, config)
 
             logger.debug(f"Result messages count: {len(result.get('messages', []))}")
 
